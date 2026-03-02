@@ -1,0 +1,195 @@
+use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderbookLevel {
+    pub price: Decimal,
+    pub size: Decimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderbookSnapshot {
+    pub token_id: String,
+    pub bids: Vec<OrderbookLevel>,
+    pub asks: Vec<OrderbookLevel>,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketState {
+    pub condition_id: String,
+    pub question: String,
+    pub outcomes: Vec<String>,
+    pub token_ids: Vec<String>,
+    pub outcome_prices: Vec<Decimal>,
+    pub orderbooks: Vec<OrderbookSnapshot>,
+    pub volume_24hr: Option<Decimal>,
+    pub liquidity: Option<Decimal>,
+    pub active: bool,
+    pub neg_risk: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ArbType {
+    IntraMarket,
+    CrossMarket,
+    MultiOutcome,
+}
+
+impl std::fmt::Display for ArbType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IntraMarket => write!(f, "intra_market"),
+            Self::CrossMarket => write!(f, "cross_market"),
+            Self::MultiOutcome => write!(f, "multi_outcome"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Side {
+    Buy,
+    Sell,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TradingMode {
+    Paper,
+    Live,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Opportunity {
+    pub id: Uuid,
+    pub arb_type: ArbType,
+    pub markets: Vec<String>,
+    pub legs: Vec<TradeLeg>,
+    pub gross_edge: Decimal,
+    pub net_edge: Decimal,
+    pub estimated_vwap: Vec<Decimal>,
+    pub confidence: f64,
+    pub size_available: Decimal,
+    pub detected_at: DateTime<Utc>,
+}
+
+impl Opportunity {
+    /// Net edge in basis points.
+    pub fn net_edge_bps(&self) -> Decimal {
+        self.net_edge * Decimal::from(10_000)
+    }
+
+    /// Return a copy with size capped to `max_size`.
+    pub fn with_max_size(&self, max_size: Decimal) -> Self {
+        let mut opp = self.clone();
+        if opp.size_available > max_size {
+            opp.size_available = max_size;
+            for leg in &mut opp.legs {
+                if leg.target_size > max_size {
+                    leg.target_size = max_size;
+                }
+            }
+        }
+        opp
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TradeLeg {
+    pub token_id: String,
+    pub side: Side,
+    pub target_price: Decimal,
+    pub target_size: Decimal,
+    pub vwap_estimate: Decimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionReport {
+    pub opportunity_id: Uuid,
+    pub legs: Vec<LegReport>,
+    pub realized_edge: Decimal,
+    pub slippage: Decimal,
+    pub total_fees: Decimal,
+    pub timestamp: DateTime<Utc>,
+    pub mode: TradingMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegReport {
+    pub order_id: String,
+    pub token_id: String,
+    pub side: Side,
+    pub expected_vwap: Decimal,
+    pub actual_fill_price: Decimal,
+    pub filled_size: Decimal,
+    pub status: FillStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FillStatus {
+    FullyFilled,
+    PartiallyFilled,
+    Rejected,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VwapEstimate {
+    pub vwap: Decimal,
+    pub total_size: Decimal,
+    pub levels_consumed: usize,
+    pub max_available: Decimal,
+    pub slippage_bps: Decimal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderChunk {
+    pub size: Decimal,
+    pub limit_price: Decimal,
+    pub delay_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbEstimate {
+    pub probabilities: Vec<f64>,
+    pub confidence_interval: Vec<(f64, f64)>,
+    pub method: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RiskDecision {
+    Approve { max_size: Decimal },
+    Reject { reason: String },
+    ReduceSize { new_size: Decimal, reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Position {
+    pub token_id: String,
+    pub condition_id: String,
+    pub size: Decimal,
+    pub avg_entry_price: Decimal,
+    pub current_price: Decimal,
+    pub unrealized_pnl: Decimal,
+}
+
+/// Defines a correlation relationship between two markets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketCorrelation {
+    pub condition_id_a: String,
+    pub condition_id_b: String,
+    pub relationship: CorrelationRelationship,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CorrelationRelationship {
+    /// P(A) <= P(B) — A implies B
+    ImpliedBy,
+    /// P(A) + P(B) <= 1.0 — mutually exclusive
+    MutuallyExclusive,
+    /// P(A) + P(B) >= 1.0 — at least one must be true
+    Exhaustive,
+    /// Custom constraint with a bound
+    Custom { constraint: String, bound: Decimal },
+}

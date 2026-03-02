@@ -1,0 +1,24 @@
+[package]
+name = "arb-execution"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Trade execution: slippage estimation, paper trading, and live execution"
+
+[dependencies]
+arb-core = { workspace = true }
+arb-data = { workspace = true }
+polymarket-client-sdk = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

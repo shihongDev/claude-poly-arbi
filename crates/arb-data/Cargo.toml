@@ -1,0 +1,25 @@
+[package]
+name = "arb-data"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Market data ingestion, orderbook processing, and VWAP calculation"
+
+[dependencies]
+arb-core = { workspace = true }
+polymarket-client-sdk = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+rust_decimal = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+rust_decimal_macros = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

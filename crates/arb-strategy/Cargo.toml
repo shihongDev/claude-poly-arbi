@@ -1,0 +1,23 @@
+[package]
+name = "arb-strategy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Arbitrage detection (intra/cross/multi) and edge calculation"
+
+[dependencies]
+arb-core = { workspace = true }
+arb-data = { workspace = true }
+arb-simulation = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

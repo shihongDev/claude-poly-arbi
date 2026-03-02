@@ -1,0 +1,35 @@
+[package]
+name = "arb-daemon"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Polymarket arbitrage daemon: main binary with CLI commands"
+
+[[bin]]
+name = "arb"
+path = "src/main.rs"
+
+[dependencies]
+arb-core = { workspace = true }
+arb-data = { workspace = true }
+arb-strategy = { workspace = true }
+arb-simulation = { workspace = true }
+arb-execution = { workspace = true }
+arb-risk = { workspace = true }
+arb-monitor = { workspace = true }
+polymarket-client-sdk = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+toml = { workspace = true }
+dirs = "6"
+futures-util = "0.3"

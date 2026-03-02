@@ -1,0 +1,137 @@
+use arb_core::{
+    Opportunity, TradeLeg, Side,
+    error::Result,
+};
+use arb_data::market_cache::MarketCache;
+use arb_data::orderbook::OrderbookProcessor;
+use arb_core::config::SlippageConfig;
+use arb_core::traits::SlippageEstimator;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+
+/// Central EV computation engine.
+///
+/// Handles fee calculation and VWAP refinement for all arb types.
+/// Polymarket charges ~2% on net winnings, but for arb we model fees
+/// as a percentage of notional traded.
+pub struct EdgeCalculator {
+    fee_rate: Decimal,
+    slippage_estimator: OrderbookProcessor,
+}
+
+impl EdgeCalculator {
+    pub fn new(fee_rate: Decimal, slippage_config: SlippageConfig) -> Self {
+        Self {
+            fee_rate,
+            slippage_estimator: OrderbookProcessor::new(slippage_config),
+        }
+    }
+
+    /// Default with Polymarket's 2% fee rate.
+    pub fn default_with_config(slippage_config: SlippageConfig) -> Self {
+        Self::new(dec!(0.02), slippage_config)
+    }
+
+    /// Refine an opportunity's edge using real VWAP from the market cache.
+    ///
+    /// Re-walks the orderbook for each leg and updates net_edge and estimated_vwap.
+    pub fn refine_with_vwap(&self, opp: &mut Opportunity, cache: &MarketCache) -> Result<()> {
+        let mut total_vwap_cost = Decimal::ZERO;
+        let mut estimated_vwaps = Vec::with_capacity(opp.legs.len());
+
+        for leg in &mut opp.legs {
+            // Find the orderbook for this token in the cache
+            let market = opp
+                .markets
+                .iter()
+                .find_map(|cid| cache.get(cid))
+                .and_then(|m| {
+                    m.orderbooks
+                        .iter()
+                        .find(|ob| ob.token_id == leg.token_id)
+                        .cloned()
+                });
+
+            if let Some(book) = market {
+                let vwap_est = self
+                    .slippage_estimator
+                    .estimate_vwap(&book, leg.side, leg.target_size)?;
+
+                leg.vwap_estimate = vwap_est.vwap;
+                estimated_vwaps.push(vwap_est.vwap);
+
+                match leg.side {
+                    Side::Buy => total_vwap_cost += vwap_est.vwap * leg.target_size,
+                    Side::Sell => total_vwap_cost -= vwap_est.vwap * leg.target_size,
+                }
+            } else {
+                estimated_vwaps.push(leg.target_price);
+            }
+        }
+
+        opp.estimated_vwap = estimated_vwaps;
+        let fees = self.calculate_fees(&opp.legs);
+        opp.net_edge = opp.gross_edge - fees;
+
+        Ok(())
+    }
+
+    /// Calculate total fees across all legs.
+    pub fn calculate_fees(&self, legs: &[TradeLeg]) -> Decimal {
+        legs.iter()
+            .map(|leg| leg.target_size * leg.vwap_estimate * self.fee_rate)
+            .sum()
+    }
+
+    /// For structural arbs (intra-market, multi-outcome), compute edge from
+    /// the deviation of price sum from the theoretical target (1.00).
+    pub fn structural_edge(&self, price_sum: Decimal, target: Decimal) -> Decimal {
+        (price_sum - target).abs()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn default_calc() -> EdgeCalculator {
+        EdgeCalculator::default_with_config(arb_core::config::SlippageConfig {
+            max_slippage_bps: 100,
+            order_split_threshold: 500,
+            prefer_post_only: true,
+            vwap_depth_levels: 10,
+        })
+    }
+
+    #[test]
+    fn test_fee_calculation() {
+        let calc = default_calc();
+        let legs = vec![
+            TradeLeg {
+                token_id: "a".into(),
+                side: Side::Buy,
+                target_price: dec!(0.50),
+                target_size: dec!(100),
+                vwap_estimate: dec!(0.50),
+            },
+            TradeLeg {
+                token_id: "b".into(),
+                side: Side::Buy,
+                target_price: dec!(0.48),
+                target_size: dec!(100),
+                vwap_estimate: dec!(0.48),
+            },
+        ];
+        // fees = 100 * 0.50 * 0.02 + 100 * 0.48 * 0.02 = 1.00 + 0.96 = 1.96
+        let fees = calc.calculate_fees(&legs);
+        assert_eq!(fees, dec!(1.96));
+    }
+
+    #[test]
+    fn test_structural_edge() {
+        let calc = default_calc();
+        assert_eq!(calc.structural_edge(dec!(0.97), dec!(1.00)), dec!(0.03));
+        assert_eq!(calc.structural_edge(dec!(1.03), dec!(1.00)), dec!(0.03));
+    }
+}

@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "polymarket-cli-main/polymarket-cli-main",
+    "crates/arb-core",
+    "crates/arb-data",
+    "crates/arb-strategy",
+    "crates/arb-simulation",
+    "crates/arb-execution",
+    "crates/arb-risk",
+    "crates/arb-monitor",
+    "crates/arb-daemon",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88.0"
+license = "MIT"
+
+[workspace.dependencies]
+# Internal crates
+arb-core = { path = "crates/arb-core" }
+arb-data = { path = "crates/arb-data" }
+arb-strategy = { path = "crates/arb-strategy" }
+arb-simulation = { path = "crates/arb-simulation" }
+arb-execution = { path = "crates/arb-execution" }
+arb-risk = { path = "crates/arb-risk" }
+arb-monitor = { path = "crates/arb-monitor" }
+
+# Polymarket SDK
+polymarket-client-sdk = { version = "0.4", features = ["gamma", "data", "clob", "ctf"] }
+
+# Async
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Math & stats
+rust_decimal = "1"
+rust_decimal_macros = "1"
+nalgebra = "0.33"
+statrs = "0.18"
+rand = "0.9"
+rand_distr = "0.5"
+
+# CLI & logging
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-appender = "0.2"
+
+# Utility
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"
+dashmap = "6"
+dirs = "6"
