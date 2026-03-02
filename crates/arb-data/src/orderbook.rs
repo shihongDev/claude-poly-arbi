@@ -6,6 +6,22 @@ use arb_core::{
 };
 use chrono::Utc;
 use rust_decimal::Decimal;
+use serde::Serialize;
+
+/// Bid-ask spread and depth profile for an orderbook.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpreadDepthProfile {
+    pub token_id: String,
+    pub best_bid: Decimal,
+    pub best_ask: Decimal,
+    pub spread: Decimal,
+    pub spread_bps: Decimal,
+    pub mid: Decimal,
+    pub bid_depth_3: Decimal,
+    pub ask_depth_3: Decimal,
+    pub bid_depth_5: Decimal,
+    pub ask_depth_5: Decimal,
+}
 
 /// Converts SDK orderbook responses and computes VWAP by walking bid/ask levels.
 pub struct OrderbookProcessor {
@@ -53,6 +69,61 @@ impl OrderbookProcessor {
             asks: parsed_asks,
             timestamp: Utc::now(),
         })
+    }
+
+    /// Compute VWAP estimates at multiple size tiers.
+    ///
+    /// For each size in `sizes`, calls `estimate_vwap`. If a tier fails
+    /// (e.g., insufficient liquidity), a zero `VwapEstimate` is returned
+    /// for that tier so callers always get one result per input size.
+    pub fn estimate_vwap_tiers(
+        &self,
+        book: &OrderbookSnapshot,
+        side: Side,
+        sizes: &[Decimal],
+    ) -> Vec<VwapEstimate> {
+        sizes
+            .iter()
+            .map(|&size| {
+                self.estimate_vwap(book, side, size).unwrap_or(VwapEstimate {
+                    vwap: Decimal::ZERO,
+                    total_size: Decimal::ZERO,
+                    levels_consumed: 0,
+                    max_available: Decimal::ZERO,
+                    slippage_bps: Decimal::ZERO,
+                })
+            })
+            .collect()
+    }
+
+    /// Compute bid-ask spread and depth profile for the given orderbook.
+    pub fn spread_depth_profile(&self, book: &OrderbookSnapshot) -> SpreadDepthProfile {
+        let best_bid = book.bids.first().map_or(Decimal::ZERO, |l| l.price);
+        let best_ask = book.asks.first().map_or(Decimal::ZERO, |l| l.price);
+        let spread = best_ask - best_bid;
+        let mid = (best_ask + best_bid) / Decimal::from(2);
+        let spread_bps = if mid > Decimal::ZERO {
+            spread / mid * Decimal::from(10_000)
+        } else {
+            Decimal::ZERO
+        };
+
+        let depth = |levels: &[OrderbookLevel], n: usize| -> Decimal {
+            levels.iter().take(n).map(|l| l.size).sum()
+        };
+
+        SpreadDepthProfile {
+            token_id: book.token_id.clone(),
+            best_bid,
+            best_ask,
+            spread,
+            spread_bps,
+            mid,
+            bid_depth_3: depth(&book.bids, 3),
+            ask_depth_3: depth(&book.asks, 3),
+            bid_depth_5: depth(&book.bids, 5),
+            ask_depth_5: depth(&book.asks, 5),
+        }
     }
 }
 
@@ -324,5 +395,99 @@ mod tests {
         assert_eq!(snap.token_id, "token123");
         assert_eq!(snap.bids[0].price, dec!(0.55)); // best bid first (descending)
         assert_eq!(snap.asks[0].price, dec!(0.57)); // best ask first (ascending)
+    }
+
+    #[test]
+    fn test_vwap_tiers() {
+        // 3 ask levels: 200 @ 0.50, 200 @ 0.52, 200 @ 0.55
+        let book = make_book(
+            &[],
+            &[
+                (dec!(0.50), dec!(200)),
+                (dec!(0.52), dec!(200)),
+                (dec!(0.55), dec!(200)),
+            ],
+        );
+        let proc = default_processor();
+        let tiers = proc.estimate_vwap_tiers(
+            &book,
+            Side::Buy,
+            &[dec!(100), dec!(300), dec!(1000)],
+        );
+
+        assert_eq!(tiers.len(), 3);
+
+        // Tier 1: 100 @ 0.50 — fits in first level
+        assert_eq!(tiers[0].vwap, dec!(0.50));
+        assert_eq!(tiers[0].total_size, dec!(100));
+        assert_eq!(tiers[0].levels_consumed, 1);
+
+        // Tier 2: 200 @ 0.50 + 100 @ 0.52 = (100 + 52) / 300
+        let expected = (dec!(200) * dec!(0.50) + dec!(100) * dec!(0.52)) / dec!(300);
+        assert_eq!(tiers[1].vwap, expected);
+        assert_eq!(tiers[1].total_size, dec!(300));
+        assert_eq!(tiers[1].levels_consumed, 2);
+
+        // Tier 3: 1000 exceeds total liquidity (600), should return zero estimate
+        assert_eq!(tiers[2].vwap, Decimal::ZERO);
+        assert_eq!(tiers[2].total_size, Decimal::ZERO);
+        assert_eq!(tiers[2].levels_consumed, 0);
+    }
+
+    #[test]
+    fn test_spread_depth_profile() {
+        let book = make_book(
+            &[
+                (dec!(0.55), dec!(100)),
+                (dec!(0.54), dec!(80)),
+                (dec!(0.53), dec!(60)),
+                (dec!(0.52), dec!(40)),
+                (dec!(0.51), dec!(20)),
+            ],
+            &[
+                (dec!(0.57), dec!(90)),
+                (dec!(0.58), dec!(70)),
+                (dec!(0.59), dec!(50)),
+                (dec!(0.60), dec!(30)),
+                (dec!(0.61), dec!(10)),
+            ],
+        );
+        let proc = default_processor();
+        let profile = proc.spread_depth_profile(&book);
+
+        assert_eq!(profile.token_id, "test_token");
+        assert_eq!(profile.best_bid, dec!(0.55));
+        assert_eq!(profile.best_ask, dec!(0.57));
+        assert_eq!(profile.spread, dec!(0.02));
+        assert_eq!(profile.mid, dec!(0.56));
+        // spread_bps = 0.02 / 0.56 * 10000
+        let expected_bps = dec!(0.02) / dec!(0.56) * dec!(10000);
+        assert_eq!(profile.spread_bps, expected_bps);
+
+        // bid_depth_3 = 100 + 80 + 60 = 240
+        assert_eq!(profile.bid_depth_3, dec!(240));
+        // ask_depth_3 = 90 + 70 + 50 = 210
+        assert_eq!(profile.ask_depth_3, dec!(210));
+        // bid_depth_5 = 100 + 80 + 60 + 40 + 20 = 300
+        assert_eq!(profile.bid_depth_5, dec!(300));
+        // ask_depth_5 = 90 + 70 + 50 + 30 + 10 = 250
+        assert_eq!(profile.ask_depth_5, dec!(250));
+    }
+
+    #[test]
+    fn test_spread_depth_empty_book() {
+        let book = make_book(&[], &[]);
+        let proc = default_processor();
+        let profile = proc.spread_depth_profile(&book);
+
+        assert_eq!(profile.best_bid, Decimal::ZERO);
+        assert_eq!(profile.best_ask, Decimal::ZERO);
+        assert_eq!(profile.spread, Decimal::ZERO);
+        assert_eq!(profile.mid, Decimal::ZERO);
+        assert_eq!(profile.spread_bps, Decimal::ZERO);
+        assert_eq!(profile.bid_depth_3, Decimal::ZERO);
+        assert_eq!(profile.ask_depth_3, Decimal::ZERO);
+        assert_eq!(profile.bid_depth_5, Decimal::ZERO);
+        assert_eq!(profile.ask_depth_5, Decimal::ZERO);
     }
 }
