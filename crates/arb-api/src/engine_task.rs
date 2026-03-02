@@ -23,6 +23,13 @@ use tracing::{debug, error, info, warn};
 
 use crate::state::AppState;
 
+/// Maximum number of token IDs to fetch orderbooks for in one pass.
+/// Keeps startup time reasonable (~30s instead of 5+ minutes).
+const MAX_ORDERBOOK_TOKENS: usize = 400;
+
+/// Maximum markets to send in a single WS bulk event.
+const MAX_WS_BULK_MARKETS: usize = 500;
+
 /// Spawn the background engine loop. Shares state with the API handlers.
 pub fn spawn_engine(state: AppState) {
     tokio::spawn(async move {
@@ -87,39 +94,55 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
 
     let edge_calculator = EdgeCalculator::default_with_config(config.slippage.clone());
 
-    // Initial market fetch
+    // ── Phase 1: Fetch all active markets (metadata only, no orderbooks) ──
     info!("Engine: fetching initial market data from Polymarket...");
     match data_source.fetch_all_active_markets().await {
         Ok(markets) => {
             info!(count = markets.len(), "Engine: initial market fetch complete");
             state.market_cache.update(&markets);
-            broadcast_event(&state, "market_count_update", &serde_json::json!({
-                "count": markets.len()
-            }));
+
+            // Immediately broadcast top markets to frontend (before orderbook fetch)
+            // so the UI populates within seconds, not minutes
+            let top_markets: Vec<_> = markets
+                .iter()
+                .take(MAX_WS_BULK_MARKETS)
+                .cloned()
+                .collect();
+            info!(
+                count = top_markets.len(),
+                "Engine: broadcasting initial markets to clients"
+            );
+            let _ = broadcast_event(&state, "markets_loaded", &top_markets);
         }
         Err(e) => {
             error!(error = %e, "Engine: failed initial market fetch");
         }
     }
 
-    // Fetch orderbooks for classified markets
+    // ── Phase 2: Fetch orderbooks for a limited set of classified markets ──
     let classified = classify_markets(&state.market_cache.active_markets());
+    let limited_tokens: Vec<_> = classified
+        .all_token_ids
+        .iter()
+        .take(MAX_ORDERBOOK_TOKENS)
+        .cloned()
+        .collect();
     info!(
         binary = classified.binary.len(),
         neg_risk = classified.neg_risk.len(),
-        tokens = classified.all_token_ids.len(),
-        "Engine: fetching orderbooks..."
+        total_tokens = classified.all_token_ids.len(),
+        fetching_tokens = limited_tokens.len(),
+        "Engine: fetching orderbooks (limited set)..."
     );
 
     match data_source
-        .fetch_orderbooks_concurrent(&classified.all_token_ids, &fetch_config)
+        .fetch_orderbooks_concurrent(&limited_tokens, &fetch_config)
         .await
     {
         Ok(books) => {
             info!(count = books.len(), "Engine: orderbooks fetched");
-            // Attach orderbooks to cached markets
+            let mut updated_markets = Vec::new();
             for market in state.market_cache.active_markets() {
-                let mut updated = market.clone();
                 let mut new_books = Vec::new();
                 for tid in &market.token_ids {
                     if let Some(book) = books.get(tid) {
@@ -127,30 +150,26 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                     }
                 }
                 if !new_books.is_empty() {
+                    let mut updated = market.clone();
                     updated.orderbooks = new_books;
-                    state.market_cache.update_one(updated);
+                    state.market_cache.update_one(updated.clone());
+                    updated_markets.push(updated);
                 }
+            }
+
+            // Broadcast markets that now have orderbooks
+            if !updated_markets.is_empty() {
+                info!(
+                    count = updated_markets.len(),
+                    "Engine: broadcasting markets with orderbooks"
+                );
+                let _ = broadcast_event(&state, "markets_loaded", &updated_markets);
             }
         }
         Err(e) => {
             warn!(error = %e, "Engine: orderbook fetch failed");
         }
     }
-
-    // Broadcast initial market data to connected clients as a single bulk event
-    // Only include markets that have orderbooks (interesting for arb detection)
-    let all_markets = state.market_cache.active_markets();
-    let markets_with_books: Vec<_> = all_markets
-        .iter()
-        .filter(|m| !m.orderbooks.is_empty())
-        .cloned()
-        .collect();
-    info!(
-        total = all_markets.len(),
-        with_orderbooks = markets_with_books.len(),
-        "Engine: broadcasting initial markets to clients"
-    );
-    let _ = broadcast_event(&state, "markets_loaded", &markets_with_books);
 
     info!("Engine: entering main loop");
 

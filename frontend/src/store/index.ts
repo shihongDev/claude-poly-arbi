@@ -104,8 +104,17 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
             killSwitchReason: ks.reason ?? null,
           };
         }
-        case "markets_loaded":
-          return { markets: data as MarketState[] };
+        case "markets_loaded": {
+          // Merge incoming markets with existing: update matches, append new
+          const incoming = data as MarketState[];
+          const existing = new Map(
+            s.markets.map((m) => [m.condition_id, m])
+          );
+          for (const m of incoming) {
+            existing.set(m.condition_id, m);
+          }
+          return { markets: Array.from(existing.values()) };
+        }
         case "market_update": {
           const market = data as MarketState;
           const idx = s.markets.findIndex(
