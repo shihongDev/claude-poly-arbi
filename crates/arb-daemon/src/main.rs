@@ -40,6 +40,9 @@ enum Commands {
         /// Per-request timeout in seconds
         #[arg(long, default_value = "15")]
         timeout: u64,
+        /// Minimum 24h volume (USD) to include a market (filters out dead markets)
+        #[arg(long, default_value = "0")]
+        min_volume: u64,
         /// Show per-market scan progress
         #[arg(long)]
         verbose: bool,
@@ -84,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
             export_csv,
             max_concurrent,
             timeout,
+            min_volume,
             verbose,
         } => {
             if comprehensive {
@@ -94,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
                     export_csv,
                     max_concurrent,
                     timeout,
+                    min_volume,
                     verbose,
                 )
                 .await

@@ -139,6 +139,7 @@ pub async fn execute_comprehensive(
     export_csv_path: Option<String>,
     max_concurrent: usize,
     timeout_secs: u64,
+    min_volume: u64,
     verbose: bool,
 ) -> anyhow::Result<()> {
     use crate::export::{self, OpportunityRow, ScanReport};
@@ -161,12 +162,30 @@ pub async fn execute_comprehensive(
     println!("[1/4] Fetching all active markets...");
 
     let data_source = SdkMarketDataSource::new();
-    let markets = data_source.fetch_all_active_markets().await?;
+    let all_markets = data_source.fetch_all_active_markets().await?;
+    println!("  {} total active markets fetched", all_markets.len());
+
+    // Filter by minimum 24h volume if specified
+    let markets: Vec<MarketState> = if min_volume > 0 {
+        let min_vol = Decimal::from(min_volume);
+        let filtered: Vec<MarketState> = all_markets
+            .into_iter()
+            .filter(|m| m.volume_24hr.unwrap_or_default() >= min_vol)
+            .collect();
+        println!(
+            "  {} markets after --min-volume {} filter",
+            filtered.len(),
+            min_volume,
+        );
+        filtered
+    } else {
+        all_markets
+    };
 
     let classified = classify_markets(&markets);
     println!(
-        "  {} total active markets ({} binary, {} neg-risk)",
-        markets.len(),
+        "  {} classified ({} binary, {} neg-risk)",
+        classified.binary.len() + classified.neg_risk.len(),
         classified.binary.len(),
         classified.neg_risk.len(),
     );
