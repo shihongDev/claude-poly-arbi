@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use arb_core::{
@@ -138,6 +139,80 @@ pub fn classify_markets(markets: &[MarketState]) -> ClassifiedMarkets {
     }
 }
 
+/// Configuration for concurrent orderbook fetching.
+#[derive(Debug, Clone)]
+pub struct ConcurrentFetchConfig {
+    /// Maximum number of concurrent orderbook requests.
+    pub max_concurrent: usize,
+    /// Delay in milliseconds between spawning batches to avoid burst traffic.
+    pub delay_ms: u64,
+    /// Per-request timeout in seconds.
+    pub timeout_secs: u64,
+}
+
+impl Default for ConcurrentFetchConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent: 10,
+            delay_ms: 50,
+            timeout_secs: 15,
+        }
+    }
+}
+
+/// Fetch a single orderbook from the CLOB API.
+///
+/// This is a standalone function (not a method) so it can be called from
+/// spawned tokio tasks without requiring a reference to `SdkMarketDataSource`.
+/// The CLOB client is cheap to construct, so we create one per call.
+async fn fetch_single_orderbook(token_id: &str) -> Result<OrderbookSnapshot> {
+    use polymarket_client_sdk::clob::types::request::OrderBookSummaryRequest;
+    use polymarket_client_sdk::types::U256;
+
+    let client = polymarket_client_sdk::clob::Client::default();
+
+    let token_u256: U256 = token_id
+        .parse()
+        .map_err(|e| ArbError::Orderbook(format!("Invalid token ID '{token_id}': {e}")))?;
+
+    let request = OrderBookSummaryRequest::builder()
+        .token_id(token_u256)
+        .build();
+
+    let response = client.order_book(&request).await.map_err(|e| {
+        ArbError::Orderbook(format!("Failed to fetch orderbook for {token_id}: {e}"))
+    })?;
+
+    let mut bids: Vec<OrderbookLevel> = response
+        .bids
+        .iter()
+        .map(|s| OrderbookLevel {
+            price: s.price,
+            size: s.size,
+        })
+        .collect();
+
+    let mut asks: Vec<OrderbookLevel> = response
+        .asks
+        .iter()
+        .map(|s| OrderbookLevel {
+            price: s.price,
+            size: s.size,
+        })
+        .collect();
+
+    // Ensure correct sort order: bids descending, asks ascending
+    bids.sort_by(|a, b| b.price.cmp(&a.price));
+    asks.sort_by(|a, b| a.price.cmp(&b.price));
+
+    Ok(OrderbookSnapshot {
+        token_id: token_id.to_string(),
+        bids,
+        asks,
+        timestamp: Utc::now(),
+    })
+}
+
 /// Live market data source using the Polymarket SDK.
 pub struct SdkMarketDataSource {
     gamma_client: polymarket_client_sdk::gamma::Client,
@@ -252,6 +327,84 @@ impl SdkMarketDataSource {
 
         Ok(all_markets)
     }
+
+    /// Fetch orderbooks for many token IDs concurrently with rate limiting.
+    ///
+    /// Uses a semaphore to cap concurrency at `config.max_concurrent` and applies
+    /// a per-request timeout of `config.timeout_secs`. Failed fetches are logged
+    /// as warnings but do not abort the batch — partial results are returned.
+    ///
+    /// A small delay (`config.delay_ms`) is inserted between spawning each task
+    /// to avoid burst traffic against the CLOB API.
+    pub async fn fetch_orderbooks_concurrent(
+        &self,
+        token_ids: &[String],
+        config: &ConcurrentFetchConfig,
+    ) -> Result<HashMap<String, OrderbookSnapshot>> {
+        use tokio::time::{Duration, sleep, timeout};
+
+        if token_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent));
+        let timeout_duration = Duration::from_secs(config.timeout_secs);
+        let delay_duration = Duration::from_millis(config.delay_ms);
+
+        let mut handles = Vec::with_capacity(token_ids.len());
+
+        for token_id in token_ids {
+            let sem = Arc::clone(&semaphore);
+            let tid = token_id.clone();
+            let td = timeout_duration;
+
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.expect("semaphore closed unexpectedly");
+                let result = timeout(td, fetch_single_orderbook(&tid)).await;
+                (tid, result)
+            });
+
+            handles.push(handle);
+
+            // Stagger task spawning to avoid burst traffic
+            if config.delay_ms > 0 {
+                sleep(delay_duration).await;
+            }
+        }
+
+        let mut results = HashMap::with_capacity(token_ids.len());
+        let mut success_count: usize = 0;
+        let mut failure_count: usize = 0;
+
+        for handle in handles {
+            match handle.await {
+                Ok((tid, Ok(Ok(snapshot)))) => {
+                    results.insert(tid, snapshot);
+                    success_count += 1;
+                }
+                Ok((tid, Ok(Err(e)))) => {
+                    warn!("Orderbook fetch failed for {tid}: {e}");
+                    failure_count += 1;
+                }
+                Ok((tid, Err(_))) => {
+                    warn!("Orderbook fetch timed out for {tid}");
+                    failure_count += 1;
+                }
+                Err(e) => {
+                    warn!("Orderbook fetch task panicked: {e}");
+                    failure_count += 1;
+                }
+            }
+        }
+
+        info!(
+            "Concurrent orderbook fetch complete: {success_count} succeeded, \
+             {failure_count} failed, {} total",
+            token_ids.len()
+        );
+
+        Ok(results)
+    }
 }
 
 impl Default for SdkMarketDataSource {
@@ -284,57 +437,7 @@ impl MarketDataSource for SdkMarketDataSource {
     }
 
     async fn fetch_orderbook(&self, token_id: &str) -> Result<OrderbookSnapshot> {
-        use polymarket_client_sdk::clob::types::request::OrderBookSummaryRequest;
-        use polymarket_client_sdk::types::U256;
-
-        let client = polymarket_client_sdk::clob::Client::default();
-
-        let token_u256: U256 = token_id
-            .parse()
-            .map_err(|e| ArbError::Orderbook(format!("Invalid token ID '{token_id}': {e}")))?;
-
-        let request = OrderBookSummaryRequest::builder()
-            .token_id(token_u256)
-            .build();
-
-        let response = client
-            .order_book(&request)
-            .await
-            .map_err(|e| {
-                ArbError::Orderbook(format!(
-                    "Failed to fetch orderbook for {token_id}: {e}"
-                ))
-            })?;
-
-        // OrderSummary already has price: Decimal, size: Decimal
-        let mut bids: Vec<OrderbookLevel> = response
-            .bids
-            .iter()
-            .map(|s| OrderbookLevel {
-                price: s.price,
-                size: s.size,
-            })
-            .collect();
-
-        let mut asks: Vec<OrderbookLevel> = response
-            .asks
-            .iter()
-            .map(|s| OrderbookLevel {
-                price: s.price,
-                size: s.size,
-            })
-            .collect();
-
-        // Ensure correct sort order
-        bids.sort_by(|a, b| b.price.cmp(&a.price));
-        asks.sort_by(|a, b| a.price.cmp(&b.price));
-
-        Ok(OrderbookSnapshot {
-            token_id: token_id.to_string(),
-            bids,
-            asks,
-            timestamp: Utc::now(),
-        })
+        fetch_single_orderbook(token_id).await
     }
 
     async fn fetch_orderbooks(&self, token_ids: &[String]) -> Result<Vec<OrderbookSnapshot>> {
@@ -467,5 +570,13 @@ mod tests {
             result.all_token_ids,
             vec!["tok_z", "tok_y", "tok_x", "tok_w"]
         );
+    }
+
+    #[test]
+    fn concurrent_fetch_config_defaults() {
+        let config = ConcurrentFetchConfig::default();
+        assert_eq!(config.max_concurrent, 10);
+        assert_eq!(config.delay_ms, 50);
+        assert_eq!(config.timeout_secs, 15);
     }
 }
