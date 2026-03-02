@@ -1,3 +1,4 @@
+mod engine_task;
 mod routes;
 mod state;
 mod ws;
@@ -62,7 +63,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/ws", get(ws::ws_handler))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state.clone());
+
+    // Spawn background engine that fetches live Polymarket data
+    engine_task::spawn_engine(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     tracing::info!("arb-api server listening on http://0.0.0.0:8080");
