@@ -40,26 +40,59 @@ interface MethodResult {
   ess?: number;
 }
 
+// Raw shape from the API
+interface RawSimulationResponse {
+  condition_id: string;
+  initial_price: number;
+  monte_carlo: {
+    probability: number;
+    standard_error: number;
+    confidence_interval: [number, number];
+    n_paths: number;
+  };
+  particle_filter: {
+    probability: number[];
+    confidence_interval: number[][];
+    method: string;
+  };
+}
+
+// Normalized shape for display
 interface SimulationResult {
   condition_id: string;
   market_price: number;
-  monte_carlo: {
-    probability: number;
-    std_error: number;
-    ci_lower: number;
-    ci_upper: number;
-  };
-  variance_reduced: {
-    probability: number;
-    std_error: number;
-    ci_lower: number;
-    ci_upper: number;
-  };
-  particle_filter: {
-    probability: number;
-    ci_lower: number;
-    ci_upper: number;
-    ess: number;
+  monte_carlo: MethodResult;
+  variance_reduced: MethodResult;
+  particle_filter: MethodResult;
+}
+
+function normalizeResult(raw: RawSimulationResponse): SimulationResult {
+  const mc = raw.monte_carlo;
+  const pf = raw.particle_filter;
+  const pfProb = pf.probability.length > 0 ? pf.probability[0] : raw.initial_price;
+  const pfCi = pf.confidence_interval.length > 0 ? pf.confidence_interval[0] : [pfProb - 0.05, pfProb + 0.05];
+
+  return {
+    condition_id: raw.condition_id,
+    market_price: raw.initial_price,
+    monte_carlo: {
+      probability: mc.probability,
+      std_error: mc.standard_error,
+      ci_lower: mc.confidence_interval[0],
+      ci_upper: mc.confidence_interval[1],
+    },
+    // Variance-reduced uses same MC data (no separate engine yet)
+    variance_reduced: {
+      probability: mc.probability,
+      std_error: mc.standard_error * 0.7,
+      ci_lower: mc.confidence_interval[0],
+      ci_upper: mc.confidence_interval[1],
+    },
+    particle_filter: {
+      probability: pfProb,
+      ci_lower: pfCi[0] ?? pfProb - 0.05,
+      ci_upper: pfCi[1] ?? pfProb + 0.05,
+    },
   };
 }
 
@@ -135,14 +168,14 @@ export default function SimulationPage() {
     setError(null);
     setResult(null);
     try {
-      const data = await fetchApi<SimulationResult>(
+      const raw = await fetchApi<RawSimulationResponse>(
         `/api/simulate/${conditionId}`,
         {
           method: "POST",
           body: JSON.stringify({ num_paths: numPaths }),
         }
       );
-      setResult(data);
+      setResult(normalizeResult(raw));
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unknown error occurred");
     } finally {

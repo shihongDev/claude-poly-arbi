@@ -110,6 +110,8 @@ export type WsEventType =
   | "metrics_update"
   | "kill_switch_change"
   | "market_update"
+  | "markets_loaded"
+  | "market_count_update"
   | "alert";
 
 export interface WsEvent {

@@ -137,11 +137,20 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         }
     }
 
-    // Broadcast initial market data to connected clients
+    // Broadcast initial market data to connected clients as a single bulk event
+    // Only include markets that have orderbooks (interesting for arb detection)
     let all_markets = state.market_cache.active_markets();
-    for m in &all_markets {
-        let _ = broadcast_event(&state, "market_update", m);
-    }
+    let markets_with_books: Vec<_> = all_markets
+        .iter()
+        .filter(|m| !m.orderbooks.is_empty())
+        .cloned()
+        .collect();
+    info!(
+        total = all_markets.len(),
+        with_orderbooks = markets_with_books.len(),
+        "Engine: broadcasting initial markets to clients"
+    );
+    let _ = broadcast_event(&state, "markets_loaded", &markets_with_books);
 
     info!("Engine: entering main loop");
 

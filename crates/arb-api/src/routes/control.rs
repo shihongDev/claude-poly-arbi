@@ -19,9 +19,13 @@ pub async fn kill(
         risk.activate_kill_switch(&body.reason);
     }
 
+    // Broadcast kill switch change via WS using the standard {type, data} format
     let event = serde_json::json!({
-        "event": "kill_switch_activated",
-        "reason": body.reason,
+        "type": "kill_switch_change",
+        "data": {
+            "active": true,
+            "reason": body.reason,
+        }
     });
     let _ = state.ws_tx.send(event.to_string());
 
@@ -36,7 +40,10 @@ pub async fn resume(State(state): State<AppState>) -> Json<serde_json::Value> {
     // The file-based kill switch will be re-read by RiskLimits on next tick
 
     let event = serde_json::json!({
-        "event": "kill_switch_deactivated",
+        "type": "kill_switch_change",
+        "data": {
+            "active": false,
+        }
     });
     let _ = state.ws_tx.send(event.to_string());
 

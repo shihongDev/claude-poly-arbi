@@ -38,14 +38,19 @@ function DataInitializer() {
         if (opportunities.status === "fulfilled") setOpportunities(opportunities.value);
         if (positions.status === "fulfilled") setPositions(positions.value);
         if (metrics.status === "fulfilled") setMetrics(metrics.value);
-        if (markets.status === "fulfilled") setMarkets(markets.value);
+        if (markets.status === "fulfilled" && markets.value.length > 0) setMarkets(markets.value);
         if (history.status === "fulfilled") setHistory(history.value);
       } catch {
         /* Backend not available yet — WebSocket will handle reconnection */
       }
     }
 
+    // Initial fetch
     loadInitialData();
+
+    // Re-fetch after engine has had time to load data (markets take ~15s)
+    const retryTimer = setTimeout(loadInitialData, 20_000);
+    return () => clearTimeout(retryTimer);
   }, [setStatus, setOpportunities, setPositions, setMetrics, setMarkets, setHistory]);
 
   return null;

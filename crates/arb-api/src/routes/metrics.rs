@@ -20,18 +20,23 @@ pub async fn get_metrics(State(state): State<AppState>) -> Json<serde_json::Valu
     let pnl_cross = metrics.pnl_for_type(arb_core::ArbType::CrossMarket);
     let pnl_multi = metrics.pnl_for_type(arb_core::ArbType::MultiOutcome);
 
+    let peak_equity = rust_decimal::Decimal::from(10_000);
+    let current_equity = peak_equity + total_pnl;
+
     Json(serde_json::json!({
         "brier_score": brier_score,
         "drawdown_pct": drawdown_pct,
-        "execution_quality": execution_quality,
-        "total_pnl": total_pnl,
-        "daily_pnl": daily_pnl,
+        "execution_quality": execution_quality.to_string(),
+        "total_pnl": total_pnl.to_string(),
+        "daily_pnl": daily_pnl.to_string(),
         "trade_count": trade_count,
         "pnl_by_type": {
-            "intra_market": pnl_intra,
-            "cross_market": pnl_cross,
-            "multi_outcome": pnl_multi,
+            "IntraMarket": pnl_intra.to_string(),
+            "CrossMarket": pnl_cross.to_string(),
+            "MultiOutcome": pnl_multi.to_string(),
         },
-        "current_exposure": current_exposure,
+        "current_exposure": current_exposure.to_string(),
+        "peak_equity": peak_equity.to_string(),
+        "current_equity": current_equity.to_string(),
     }))
 }

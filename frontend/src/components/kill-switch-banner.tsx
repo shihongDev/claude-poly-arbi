@@ -13,7 +13,7 @@ export function KillSwitchBanner() {
 
   const handleResume = async () => {
     try {
-      await fetchApi("/api/kill-switch/reset", { method: "POST" });
+      await fetchApi("/api/resume", { method: "POST" });
     } catch {
       /* toast error in future */
     }

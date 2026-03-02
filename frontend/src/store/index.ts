@@ -104,14 +104,22 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
             killSwitchReason: ks.reason ?? null,
           };
         }
+        case "markets_loaded":
+          return { markets: data as MarketState[] };
         case "market_update": {
           const market = data as MarketState;
-          return {
-            markets: s.markets.map((m) =>
-              m.condition_id === market.condition_id ? market : m
-            ),
-          };
+          const idx = s.markets.findIndex(
+            (m) => m.condition_id === market.condition_id
+          );
+          if (idx >= 0) {
+            const updated = [...s.markets];
+            updated[idx] = market;
+            return { markets: updated };
+          }
+          return { markets: [...s.markets, market] };
         }
+        case "market_count_update":
+          return {};
         default:
           return {};
       }
