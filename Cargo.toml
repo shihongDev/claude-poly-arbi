@@ -10,6 +10,7 @@ members = [
     "crates/arb-risk",
     "crates/arb-monitor",
     "crates/arb-daemon",
+    "crates/arb-api",
 ]
 
 [workspace.package]

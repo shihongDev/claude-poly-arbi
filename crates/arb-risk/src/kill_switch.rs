@@ -89,10 +89,10 @@ impl KillSwitch {
 
     /// Deactivate the kill switch.
     pub fn deactivate(&mut self) {
-        if self.flag_path.exists() {
-            if let Err(e) = std::fs::remove_file(&self.flag_path) {
-                error!(error = %e, "Failed to remove kill switch file");
-            }
+        if self.flag_path.exists()
+            && let Err(e) = std::fs::remove_file(&self.flag_path)
+        {
+            error!(error = %e, "Failed to remove kill switch file");
         }
 
         self.active = false;

@@ -40,9 +40,7 @@ impl ImportanceSampler {
         // Tilt to center the log-normal distribution at the strike
         // θ* ≈ (log(K/S_0) - (μ - σ²/2)T) / (σ²T)
         let drift_term = (params.drift - 0.5 * sigma * sigma) * t;
-        let tilt = (log_moneyness - drift_term) / (sigma * sigma * t);
-
-        tilt
+        (log_moneyness - drift_term) / (sigma * sigma * t)
     }
 
     /// Run importance sampling simulation.
