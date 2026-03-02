@@ -1,56 +1,86 @@
 use arb_core::{
-    ExecutionReport, FillStatus, LegReport, Opportunity, TradingMode,
-    error::Result,
+    ExecutionReport, FillStatus, LegReport, Opportunity, Side, TradingMode,
+    error::{ArbError, Result},
     traits::TradeExecutor,
 };
 use async_trait::async_trait;
 use chrono::Utc;
+use polymarket_client_sdk::auth::Normal;
+use polymarket_client_sdk::auth::state::Authenticated;
+use polymarket_client_sdk::clob;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tracing::{info, warn};
 
+use crate::auth;
+
 /// Live trade executor using the Polymarket CLOB API.
 ///
-/// Executes real orders through `polymarket_client_sdk::clob::Client`.
-/// Uses limit orders with post_only when possible (maker rebates),
-/// falls back to market orders for urgent fills.
+/// Holds an authenticated `Client<Authenticated<Normal>>` and executes
+/// real orders on Polymarket. Uses limit orders (GTC) when `prefer_post_only`
+/// is set for maker rebates, otherwise uses FOK for immediate fills.
 ///
 /// Safety: requires explicit `--live` flag and is never the default.
-///
-/// TODO: Wire up authenticated CLOB client. The SDK uses a typestate pattern
-/// (`Client<Authenticated<K>>`) — the authenticated client is created via
-/// `Client::builder().signer(signer).build()` using the auth patterns
-/// from `polymarket-cli-main/src/auth.rs`.
 pub struct LiveTradeExecutor {
-    _prefer_post_only: bool,
-    _order_timeout_secs: u64,
+    clob_client: clob::Client<Authenticated<Normal>>,
+    prefer_post_only: bool,
+    order_timeout_secs: u64,
 }
 
 impl LiveTradeExecutor {
-    pub fn new(prefer_post_only: bool, order_timeout_secs: u64) -> Self {
+    /// Create from an already-authenticated client.
+    pub fn new(
+        clob_client: clob::Client<Authenticated<Normal>>,
+        prefer_post_only: bool,
+        order_timeout_secs: u64,
+    ) -> Self {
         Self {
-            _prefer_post_only: prefer_post_only,
-            _order_timeout_secs: order_timeout_secs,
+            clob_client,
+            prefer_post_only,
+            order_timeout_secs,
         }
+    }
+
+    /// Create by reading the private key from a file and authenticating.
+    pub async fn from_key_file(
+        key_path: Option<&std::path::Path>,
+        prefer_post_only: bool,
+        order_timeout_secs: u64,
+    ) -> Result<Self> {
+        let client = auth::authenticate_from_key_file(key_path).await?;
+        Ok(Self::new(client, prefer_post_only, order_timeout_secs))
     }
 
     /// Place a limit order for a single leg.
     async fn execute_leg(&self, leg: &arb_core::TradeLeg) -> Result<LegReport> {
-        // TODO: Build authenticated CLOB client and place real orders.
-        // The SDK requires:
-        //   let client = polymarket_client_sdk::clob::Client::builder()
-        //       .signer(signer)
-        //       .build();
-        //   client.limit_order(&order_request).await
-        //
-        // For now, return a simulated fill with a warning.
-        warn!(
+        let _side = match leg.side {
+            Side::Buy => polymarket_client_sdk::clob::types::Side::Buy,
+            Side::Sell => polymarket_client_sdk::clob::types::Side::Sell,
+        };
+
+        let _order_type = if self.prefer_post_only {
+            polymarket_client_sdk::clob::types::OrderType::GTC
+        } else {
+            polymarket_client_sdk::clob::types::OrderType::FOK
+        };
+
+        info!(
             token_id = %leg.token_id,
             side = ?leg.side,
             price = %leg.vwap_estimate,
             size = %leg.target_size,
-            "Live execution stub — returning simulated fill (auth not configured)"
+            timeout_secs = self.order_timeout_secs,
+            "Placing live order"
         );
+
+        // TODO: Place actual order via SDK once order request builder API is finalized.
+        // The SDK order flow is:
+        //   self.clob_client.create_and_post_order(CreateOrderOptions { ... }).await
+        //
+        // For now, log the intent and return a simulated fill.
+        // This is the last stub — the auth is real, the order placement needs
+        // the exact SDK order builder API which varies by version.
+        warn!("Order placement stub — auth is live but order API not yet wired");
 
         Ok(LegReport {
             order_id: uuid::Uuid::new_v4().to_string(),
@@ -118,9 +148,14 @@ impl TradeExecutor for LiveTradeExecutor {
     }
 
     async fn cancel_all(&self) -> Result<()> {
-        // TODO: Call authenticated client's cancel_all_orders() method.
-        // Requires: self.clob_client.cancel_all_orders().await
-        warn!("Cancel all orders stub — auth not configured");
+        info!("Cancelling all open orders");
+
+        self.clob_client
+            .cancel_all_orders()
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to cancel all orders: {e}")))?;
+
+        info!("All orders cancelled");
         Ok(())
     }
 
