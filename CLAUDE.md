@@ -6,24 +6,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Polymarket arbitrage system built in Rust. Extends an existing Polymarket CLI (`polymarket-cli-main/polymarket-cli-main/`) with an institutional-grade arbitrage detection and execution engine.
 
-The CLI is a complete, working tool for browsing markets, placing orders, and managing positions on Polymarket via their CLOB and on-chain APIs. The arb system (8-crate workspace: arb-core, arb-data, arb-strategy, arb-simulation, arb-execution, arb-risk, arb-monitor, arb-daemon) is planned but not yet scaffolded.
+The CLI is a complete, working tool for browsing markets, placing orders, and managing positions on Polymarket via their CLOB and on-chain APIs. The arb system (9-crate workspace: arb-core, arb-data, arb-strategy, arb-simulation, arb-execution, arb-risk, arb-monitor, arb-daemon, arb-api) is implemented and compiling. A Next.js frontend dashboard (`frontend/`) provides real-time monitoring, trading controls, and market exploration.
 
 ## Build & Development Commands
 
-All commands run from `polymarket-cli-main/polymarket-cli-main/`:
+### Rust (from repo root)
 
 ```bash
 cargo build                    # dev build
 cargo build --release          # release build (thin LTO, stripped)
 cargo fmt --check              # format check (CI enforced)
 cargo clippy -- -D warnings    # lint, all warnings are errors (CI enforced)
-cargo test                     # all tests (unit + integration)
+cargo test --workspace         # all tests (unit + integration)
 cargo test --lib               # unit tests only
-cargo test --test cli_integration  # integration tests only
-cargo install --path .         # install binary locally
+cargo run -p arb-api           # start API server on :8080
 ```
 
 Rust edition 2024, MSRV 1.88.0.
+
+### Frontend (from `frontend/`)
+
+```bash
+pnpm install                   # install dependencies
+pnpm dev                       # dev server on :3000
+pnpm build                     # production build (use NODE_OPTIONS="--max-old-space-size=4096" on WSL2)
+npx tsc --noEmit               # type check
+pnpm lint                      # ESLint check
+```
+
+Next.js 16, React 19, TailwindCSS v4, shadcn/ui, TradingView Lightweight Charts, Apache ECharts.
 
 ## Architecture
 
@@ -69,6 +80,29 @@ Adding a new command group: create both `commands/<group>.rs` and `output/<group
 ## Output Format Convention
 
 Every command supports `--output table` (default) and `--output json`. Table errors go to stderr; JSON errors go to stdout as `{"error": "..."}`. Non-zero exit code either way.
+
+### API Server (arb-api)
+
+Axum REST + WebSocket server. Serves data from the arb engine to the frontend.
+
+- REST endpoints: `/api/status`, `/api/opportunities`, `/api/positions`, `/api/metrics`, `/api/markets`, `/api/history`, `/api/config`, `/api/kill`, `/api/resume`, `/api/simulate/:id`
+- WebSocket: `/ws` — broadcasts live events (opportunities, executions, position updates, metrics, kill switch changes)
+- AppState: shared `Arc` references to MarketCache, RiskLimits, ArbConfig, broadcast channel
+
+### Frontend Dashboard
+
+Next.js App Router at `frontend/`. 9 pages:
+- `/` — Dashboard overview (KPIs, P&L chart, risk gauges, recent opportunities, top positions)
+- `/opportunities` — Live arb feed with filters and detail sheet
+- `/positions` — Positions table, exposure pie chart, P&L by strategy
+- `/performance` — Brier score, execution quality, drawdown, strategy P&L
+- `/markets` — Market browser + `/markets/[id]` detail with orderbook depth
+- `/controls` — Kill switch, daemon status, config editor
+- `/history` — Trade log, slippage analysis scatter plot
+- `/simulation` — Monte Carlo/particle filter runner with comparison chart
+
+State: Zustand store (`src/store/`), WebSocket hook (`src/hooks/`), REST client (`src/lib/api.ts`).
+Components: `src/components/` (MetricCard, PnLChart, RiskGauge, OrderbookDepth, DataTable, Sidebar, KillSwitchBanner, ConnectionStatus, OpportunityRow).
 
 ## Planned Arb Workspace
 
