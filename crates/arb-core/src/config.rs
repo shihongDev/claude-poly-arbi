@@ -296,6 +296,60 @@ impl ArbConfig {
     pub fn is_live(&self) -> bool {
         self.general.trading_mode == "live"
     }
+
+    /// Clone this config and apply sandbox overrides on top.
+    pub fn with_overrides(&self, ov: &crate::types::SandboxConfigOverrides) -> Self {
+        let mut c = self.clone();
+        if let Some(v) = ov.min_edge_bps { c.strategy.min_edge_bps = v; }
+        if let Some(v) = ov.intra_market_enabled { c.strategy.intra_market_enabled = v; }
+        if let Some(v) = ov.cross_market_enabled { c.strategy.cross_market_enabled = v; }
+        if let Some(v) = ov.multi_outcome_enabled { c.strategy.multi_outcome_enabled = v; }
+        if let Some(v) = ov.intra_min_deviation { c.strategy.intra_market.min_deviation = v; }
+        if let Some(v) = ov.cross_min_implied_edge { c.strategy.cross_market.min_implied_edge = v; }
+        if let Some(v) = ov.multi_min_deviation { c.strategy.multi_outcome.min_deviation = v; }
+        if let Some(v) = ov.max_slippage_bps { c.slippage.max_slippage_bps = v; }
+        if let Some(v) = ov.vwap_depth_levels { c.slippage.vwap_depth_levels = v; }
+        if let Some(v) = ov.max_position_per_market { c.risk.max_position_per_market = v; }
+        if let Some(v) = ov.max_total_exposure { c.risk.max_total_exposure = v; }
+        if let Some(v) = ov.daily_loss_limit { c.risk.daily_loss_limit = v; }
+        c
+    }
+
+    /// Validate config values are within sane bounds.
+    /// Returns a list of human-readable error messages, or empty vec if valid.
+    pub fn validate(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        if self.risk.max_total_exposure <= Decimal::ZERO {
+            errors.push("risk.max_total_exposure must be positive".into());
+        }
+        if self.risk.max_position_per_market <= Decimal::ZERO {
+            errors.push("risk.max_position_per_market must be positive".into());
+        }
+        if self.risk.daily_loss_limit <= Decimal::ZERO {
+            errors.push("risk.daily_loss_limit must be positive".into());
+        }
+        if self.risk.max_open_orders == 0 {
+            errors.push("risk.max_open_orders must be > 0".into());
+        }
+        if self.risk.max_position_per_market > self.risk.max_total_exposure {
+            errors.push("risk.max_position_per_market must not exceed max_total_exposure".into());
+        }
+        if self.polling.hot_interval_secs == 0 {
+            errors.push("polling.hot_interval_secs must be > 0".into());
+        }
+        if self.polling.warm_interval_secs == 0 {
+            errors.push("polling.warm_interval_secs must be > 0".into());
+        }
+        if self.polling.cold_interval_secs == 0 {
+            errors.push("polling.cold_interval_secs must be > 0".into());
+        }
+        if self.slippage.vwap_depth_levels == 0 {
+            errors.push("slippage.vwap_depth_levels must be > 0".into());
+        }
+
+        errors
+    }
 }
 
 impl Default for ArbConfig {

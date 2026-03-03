@@ -21,7 +21,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let mut rx = state.ws_tx.subscribe();
 
     // Forward broadcast messages to this client
-    let send_task = tokio::spawn(async move {
+    let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
             if sender.send(Message::Text(msg.into())).await.is_err() {
                 break;
@@ -30,14 +30,22 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     });
 
     // Handle client messages (ping/pong, close)
-    let recv_task = tokio::spawn(async move {
+    let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(_msg)) = receiver.next().await {
             // Client messages ignored for now
         }
     });
 
+    // Wait for either task to end. When the client disconnects (recv_task ends),
+    // explicitly abort send_task so the broadcast receiver is cleaned up and
+    // doesn't fill the channel buffer. Previously, dropping a JoinHandle merely
+    // detaches the task, leaving its broadcast receiver alive indefinitely.
     tokio::select! {
-        _ = send_task => {},
-        _ = recv_task => {},
+        _ = &mut recv_task => {
+            send_task.abort();
+        },
+        _ = &mut send_task => {
+            // send_task ended first (e.g., broadcast channel closed or send error)
+        },
     }
 }

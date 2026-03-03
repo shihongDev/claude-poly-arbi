@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import {
   createChart,
   AreaSeries,
@@ -17,7 +17,7 @@ interface PnlChartProps {
   data: { time: string; value: number }[];
 }
 
-export function PnlChart({ data }: PnlChartProps) {
+export const PnlChart = memo(function PnlChart({ data }: PnlChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
@@ -28,24 +28,24 @@ export function PnlChart({ data }: PnlChartProps) {
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#a1a1aa",
-        fontFamily: "var(--font-mono), monospace",
+        textColor: "#6B6B6B",
+        fontFamily: "var(--font-jetbrains-mono), monospace",
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "#27272a" },
-        horzLines: { color: "#27272a" },
+        vertLines: { color: "#F0EEEA" },
+        horzLines: { color: "#F0EEEA" },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: "#3f3f46", labelBackgroundColor: "#18181b" },
-        horzLine: { color: "#3f3f46", labelBackgroundColor: "#18181b" },
+        vertLine: { color: "#E6E4DF", labelBackgroundColor: "#FFFFFF" },
+        horzLine: { color: "#E6E4DF", labelBackgroundColor: "#FFFFFF" },
       },
       rightPriceScale: {
-        borderColor: "#3f3f46",
+        borderColor: "#E6E4DF",
       },
       timeScale: {
-        borderColor: "#3f3f46",
+        borderColor: "#E6E4DF",
         timeVisible: true,
       },
       handleScale: true,
@@ -55,12 +55,12 @@ export function PnlChart({ data }: PnlChartProps) {
     chartRef.current = chart;
 
     const series = chart.addSeries(AreaSeries, {
-      lineColor: "#10b981",
+      lineColor: "#2D6A4F",
       lineWidth: 2,
       lineType: LineType.Curved,
-      topColor: "rgba(16, 185, 129, 0.3)",
-      bottomColor: "rgba(16, 185, 129, 0.02)",
-      crosshairMarkerBackgroundColor: "#10b981",
+      topColor: "rgba(45, 106, 79, 0.15)",
+      bottomColor: "rgba(45, 106, 79, 0.01)",
+      crosshairMarkerBackgroundColor: "#2D6A4F",
       priceFormat: {
         type: "price",
         precision: 2,
@@ -95,19 +95,18 @@ export function PnlChart({ data }: PnlChartProps) {
 
     seriesRef.current.setData(chartData);
 
-    // Color based on whether final value is positive or negative
     const lastValue = data[data.length - 1]?.value ?? 0;
     const isPositive = lastValue >= 0;
 
     seriesRef.current.applyOptions({
-      lineColor: isPositive ? "#10b981" : "#ef4444",
+      lineColor: isPositive ? "#2D6A4F" : "#B44C3F",
       topColor: isPositive
-        ? "rgba(16, 185, 129, 0.3)"
-        : "rgba(239, 68, 68, 0.3)",
+        ? "rgba(45, 106, 79, 0.15)"
+        : "rgba(180, 76, 63, 0.15)",
       bottomColor: isPositive
-        ? "rgba(16, 185, 129, 0.02)"
-        : "rgba(239, 68, 68, 0.02)",
-      crosshairMarkerBackgroundColor: isPositive ? "#10b981" : "#ef4444",
+        ? "rgba(45, 106, 79, 0.01)"
+        : "rgba(180, 76, 63, 0.01)",
+      crosshairMarkerBackgroundColor: isPositive ? "#2D6A4F" : "#B44C3F",
     });
 
     chartRef.current?.timeScale().fitContent();
@@ -120,4 +119,4 @@ export function PnlChart({ data }: PnlChartProps) {
       style={{ minHeight: 200 }}
     />
   );
-}
+});

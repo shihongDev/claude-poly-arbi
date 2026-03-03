@@ -8,7 +8,7 @@ import {
   Save,
   Loader2,
 } from "lucide-react";
-import { toast, Toaster } from "sonner";
+import { toast } from "sonner";
 import { useDashboardStore } from "@/store";
 import { fetchApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -241,22 +241,10 @@ export default function ControlsPage() {
 
   return (
     <div className="space-y-6">
-      <Toaster
-        theme="dark"
-        position="top-right"
-        toastOptions={{
-          style: {
-            background: "#18181b",
-            border: "1px solid #3f3f46",
-            color: "#fafafa",
-          },
-        }}
-      />
-
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Controls</h1>
-        <p className="mt-1 text-sm text-zinc-400">
+        <h1 className="text-2xl font-bold text-[#1A1A19]">Controls</h1>
+        <p className="mt-1 text-sm text-[#6B6B6B]">
           Mission-critical trading controls and daemon configuration
         </p>
       </div>
@@ -266,29 +254,29 @@ export default function ControlsPage() {
       {/* =============================== */}
       <Card
         className={cn(
-          "border-2 bg-zinc-900",
+          "border-2 bg-white",
           killSwitchActive
-            ? "border-red-500/60"
-            : "border-emerald-500/40"
+            ? "border-[#B44C3F]"
+            : "border-[#2D6A4F]/40"
         )}
       >
         <CardHeader>
           <div className="flex items-center gap-3">
             {killSwitchActive ? (
-              <ShieldAlert className="h-6 w-6 text-red-500" />
+              <ShieldAlert className="h-6 w-6 text-[#B44C3F]" />
             ) : (
-              <ShieldCheck className="h-6 w-6 text-emerald-500" />
+              <ShieldCheck className="h-6 w-6 text-[#2D6A4F]" />
             )}
             <div>
               <CardTitle
                 className={cn(
                   "text-lg",
-                  killSwitchActive ? "text-red-500" : "text-emerald-500"
+                  killSwitchActive ? "text-[#B44C3F]" : "text-[#2D6A4F]"
                 )}
               >
                 {killSwitchActive ? "TRADING HALTED" : "Trading Active"}
               </CardTitle>
-              <CardDescription className="text-zinc-400">
+              <CardDescription className="text-[#6B6B6B]">
                 {killSwitchActive
                   ? "All trading operations are suspended"
                   : "The kill switch will immediately halt all trading activity"}
@@ -300,13 +288,13 @@ export default function ControlsPage() {
           {killSwitchActive ? (
             <div className="space-y-4">
               {/* Show reason + timestamp */}
-              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4">
-                <p className="text-sm font-medium text-red-400">Reason</p>
-                <p className="mt-1 text-sm text-zinc-300">
+              <div className="rounded-lg border border-[#B44C3F]/20 bg-[#F5E0DD] p-4">
+                <p className="text-sm font-medium text-[#B44C3F]">Reason</p>
+                <p className="mt-1 text-sm text-[#1A1A19]">
                   {killSwitchReason || "No reason provided"}
                 </p>
                 {status && (
-                  <p className="mt-2 text-xs text-zinc-500">
+                  <p className="mt-2 text-xs text-[#9B9B9B]">
                     Uptime at halt: {uptimeStr}
                   </p>
                 )}
@@ -315,7 +303,7 @@ export default function ControlsPage() {
               <Button
                 onClick={handleResume}
                 disabled={killLoading}
-                className="h-14 w-full bg-emerald-600 text-base font-bold text-white hover:bg-emerald-700"
+                className="h-14 w-full bg-[#2D6A4F] text-base font-bold text-white hover:bg-[#245840]"
               >
                 {killLoading ? (
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -329,7 +317,7 @@ export default function ControlsPage() {
             <div className="space-y-4">
               {/* Reason input */}
               <div className="space-y-2">
-                <Label htmlFor="kill-reason" className="text-zinc-400">
+                <Label htmlFor="kill-reason" className="text-[#6B6B6B]">
                   Reason (optional)
                 </Label>
                 <Input
@@ -337,14 +325,14 @@ export default function ControlsPage() {
                   placeholder="e.g. Unusual market conditions, investigating anomaly..."
                   value={killReason}
                   onChange={(e) => setKillReason(e.target.value)}
-                  className="border-zinc-700 bg-zinc-800 text-zinc-200 placeholder:text-zinc-600"
+                  className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19] placeholder:text-[#9B9B9B]"
                 />
               </div>
               {/* Kill button */}
               <Button
                 onClick={handleKill}
                 disabled={killLoading}
-                className="h-14 w-full bg-red-600 text-base font-bold text-white hover:bg-red-700"
+                className="h-14 w-full bg-[#B44C3F] text-base font-bold text-white hover:bg-[#9E3F33]"
               >
                 {killLoading ? (
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -361,26 +349,26 @@ export default function ControlsPage() {
       {/* =============================== */}
       {/* Section 2: Daemon Status         */}
       {/* =============================== */}
-      <Card className="border-zinc-800 bg-zinc-900">
+      <Card className="border-[#E6E4DF] bg-white">
         <CardHeader>
           <div className="flex items-center gap-3">
-            <Activity className="h-5 w-5 text-zinc-400" />
-            <CardTitle className="text-white">Daemon Status</CardTitle>
+            <Activity className="h-5 w-5 text-[#6B6B6B]" />
+            <CardTitle className="text-[#1A1A19]">Daemon Status</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Mode */}
             <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                 Mode
               </p>
               <Badge
                 className={cn(
                   "text-xs",
                   mode === "Live"
-                    ? "bg-emerald-500/10 text-emerald-500"
-                    : "bg-blue-500/10 text-blue-500"
+                    ? "bg-[#DAE9E0] text-[#2D6A4F]"
+                    : "bg-blue-50 text-blue-600"
                 )}
               >
                 {mode}
@@ -389,12 +377,12 @@ export default function ControlsPage() {
 
             {/* Uptime */}
             <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                 Uptime
               </p>
               <p
-                className="text-lg font-semibold text-white"
-                style={{ fontFamily: "var(--font-mono)" }}
+                className="text-lg font-semibold text-[#1A1A19]"
+                style={{ fontFamily: "var(--font-jetbrains-mono)" }}
               >
                 {uptimeStr}
               </p>
@@ -402,12 +390,12 @@ export default function ControlsPage() {
 
             {/* Market Count */}
             <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                 Markets
               </p>
               <p
-                className="text-lg font-semibold text-white"
-                style={{ fontFamily: "var(--font-mono)" }}
+                className="text-lg font-semibold text-[#1A1A19]"
+                style={{ fontFamily: "var(--font-jetbrains-mono)" }}
               >
                 {marketCount}
               </p>
@@ -415,7 +403,7 @@ export default function ControlsPage() {
 
             {/* WebSocket */}
             <div className="space-y-1">
-              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                 WebSocket
               </p>
               <ConnectionStatus />
@@ -429,25 +417,25 @@ export default function ControlsPage() {
       {/* =============================== */}
       <div className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Configuration</h2>
-          <p className="text-sm text-zinc-400">
+          <h2 className="text-lg font-semibold text-[#1A1A19]">Configuration</h2>
+          <p className="text-sm text-[#6B6B6B]">
             Daemon parameters. Changes take effect on save.
           </p>
         </div>
 
         {configLoading ? (
-          <div className="flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
-            <span className="ml-3 text-sm text-zinc-500">
+          <div className="flex items-center justify-center rounded-lg border border-[#E6E4DF] bg-white py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-[#9B9B9B]" />
+            <span className="ml-3 text-sm text-[#9B9B9B]">
               Loading configuration...
             </span>
           </div>
         ) : (
           <div className="space-y-4">
             {/* General */}
-            <Card className="border-zinc-800 bg-zinc-900">
+            <Card className="border-[#E6E4DF] bg-white">
               <CardHeader>
-                <CardTitle className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+                <CardTitle className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                   General
                 </CardTitle>
               </CardHeader>
@@ -455,7 +443,7 @@ export default function ControlsPage() {
                 <div className="grid gap-6 sm:grid-cols-2">
                   {/* Trading Mode */}
                   <div className="space-y-2">
-                    <Label className="text-zinc-400">Trading Mode</Label>
+                    <Label className="text-[#6B6B6B]">Trading Mode</Label>
                     <Select
                       value={config.general.trading_mode}
                       onValueChange={(v) =>
@@ -465,7 +453,7 @@ export default function ControlsPage() {
                         )
                       }
                     >
-                      <SelectTrigger className="w-full border-zinc-700 bg-zinc-800 text-zinc-200">
+                      <SelectTrigger className="w-full border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -477,7 +465,7 @@ export default function ControlsPage() {
 
                   {/* Log Level */}
                   <div className="space-y-2">
-                    <Label className="text-zinc-400">Log Level</Label>
+                    <Label className="text-[#6B6B6B]">Log Level</Label>
                     <Select
                       value={config.general.log_level}
                       onValueChange={(v) =>
@@ -487,7 +475,7 @@ export default function ControlsPage() {
                         )
                       }
                     >
-                      <SelectTrigger className="w-full border-zinc-700 bg-zinc-800 text-zinc-200">
+                      <SelectTrigger className="w-full border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -502,12 +490,12 @@ export default function ControlsPage() {
               </CardContent>
             </Card>
 
-            <Separator className="bg-zinc-800" />
+            <Separator />
 
             {/* Strategy */}
-            <Card className="border-zinc-800 bg-zinc-900">
+            <Card className="border-[#E6E4DF] bg-white">
               <CardHeader>
-                <CardTitle className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+                <CardTitle className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                   Strategy
                 </CardTitle>
               </CardHeader>
@@ -515,7 +503,7 @@ export default function ControlsPage() {
                 <div className="grid gap-6 sm:grid-cols-2">
                   {/* Min Edge */}
                   <div className="space-y-2">
-                    <Label htmlFor="min-edge" className="text-zinc-400">
+                    <Label htmlFor="min-edge" className="text-[#6B6B6B]">
                       Min Edge (bps)
                     </Label>
                     <Input
@@ -529,7 +517,7 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
 
@@ -537,8 +525,8 @@ export default function ControlsPage() {
                   <div />
 
                   {/* Intra-Market */}
-                  <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/50 px-4 py-3">
-                    <Label className="text-zinc-300">
+                  <div className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3">
+                    <Label className="text-[#1A1A19]">
                       Intra-Market Enabled
                     </Label>
                     <Switch
@@ -550,8 +538,8 @@ export default function ControlsPage() {
                   </div>
 
                   {/* Cross-Market */}
-                  <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/50 px-4 py-3">
-                    <Label className="text-zinc-300">
+                  <div className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3">
+                    <Label className="text-[#1A1A19]">
                       Cross-Market Enabled
                     </Label>
                     <Switch
@@ -563,8 +551,8 @@ export default function ControlsPage() {
                   </div>
 
                   {/* Multi-Outcome */}
-                  <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/50 px-4 py-3">
-                    <Label className="text-zinc-300">
+                  <div className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3">
+                    <Label className="text-[#1A1A19]">
                       Multi-Outcome Enabled
                     </Label>
                     <Switch
@@ -578,12 +566,12 @@ export default function ControlsPage() {
               </CardContent>
             </Card>
 
-            <Separator className="bg-zinc-800" />
+            <Separator />
 
             {/* Risk */}
-            <Card className="border-zinc-800 bg-zinc-900">
+            <Card className="border-[#E6E4DF] bg-white">
               <CardHeader>
-                <CardTitle className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+                <CardTitle className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                   Risk
                 </CardTitle>
               </CardHeader>
@@ -592,7 +580,7 @@ export default function ControlsPage() {
                   <div className="space-y-2">
                     <Label
                       htmlFor="max-position"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Max Position Per Market ($)
                     </Label>
@@ -607,13 +595,13 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label
                       htmlFor="max-exposure"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Max Total Exposure ($)
                     </Label>
@@ -628,13 +616,13 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label
                       htmlFor="daily-loss-limit"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Daily Loss Limit ($)
                     </Label>
@@ -649,13 +637,13 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label
                       htmlFor="max-open-orders"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Max Open Orders
                     </Label>
@@ -670,19 +658,19 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Separator className="bg-zinc-800" />
+            <Separator />
 
             {/* Slippage */}
-            <Card className="border-zinc-800 bg-zinc-900">
+            <Card className="border-[#E6E4DF] bg-white">
               <CardHeader>
-                <CardTitle className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+                <CardTitle className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                   Slippage
                 </CardTitle>
               </CardHeader>
@@ -691,7 +679,7 @@ export default function ControlsPage() {
                   <div className="space-y-2">
                     <Label
                       htmlFor="max-slippage"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Max Slippage (bps)
                     </Label>
@@ -706,13 +694,13 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label
                       htmlFor="order-split"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Order Split Threshold
                     </Label>
@@ -727,11 +715,11 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
-                  <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/50 px-4 py-3">
-                    <Label className="text-zinc-300">
+                  <div className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3">
+                    <Label className="text-[#1A1A19]">
                       Prefer Post-Only
                     </Label>
                     <Switch
@@ -745,12 +733,12 @@ export default function ControlsPage() {
               </CardContent>
             </Card>
 
-            <Separator className="bg-zinc-800" />
+            <Separator />
 
             {/* Alerts */}
-            <Card className="border-zinc-800 bg-zinc-900">
+            <Card className="border-[#E6E4DF] bg-white">
               <CardHeader>
-                <CardTitle className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+                <CardTitle className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                   Alerts
                 </CardTitle>
               </CardHeader>
@@ -759,7 +747,7 @@ export default function ControlsPage() {
                   <div className="space-y-2">
                     <Label
                       htmlFor="dd-warning"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Drawdown Warning (%)
                     </Label>
@@ -775,13 +763,13 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label
                       htmlFor="dd-critical"
-                      className="text-zinc-400"
+                      className="text-[#6B6B6B]"
                     >
                       Drawdown Critical (%)
                     </Label>
@@ -797,7 +785,7 @@ export default function ControlsPage() {
                           Number(e.target.value)
                         )
                       }
-                      className="border-zinc-700 bg-zinc-800 text-zinc-200"
+                      className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
                   </div>
                 </div>
@@ -809,7 +797,7 @@ export default function ControlsPage() {
               <Button
                 onClick={handleSaveConfig}
                 disabled={saveLoading}
-                className="h-11 bg-emerald-600 px-8 text-sm font-semibold text-white hover:bg-emerald-700"
+                className="h-11 bg-[#2D6A4F] px-8 text-sm font-semibold text-white hover:bg-[#245840]"
               >
                 {saveLoading ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

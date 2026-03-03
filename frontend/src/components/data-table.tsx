@@ -27,6 +27,7 @@ interface DataTableProps<T> {
   data: T[];
   pageSize?: number;
   onRowClick?: (row: T) => void;
+  rowClassName?: (row: T) => string;
 }
 
 type SortDirection = "asc" | "desc" | null;
@@ -36,6 +37,7 @@ export function DataTable<T>({
   data,
   pageSize,
   onRowClick,
+  rowClassName,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDirection>(null);
@@ -80,12 +82,11 @@ export function DataTable<T>({
     <div>
       <Table>
         <TableHeader>
-          <TableRow className="border-zinc-800 hover:bg-transparent">
+          <TableRow className="hover:bg-transparent">
             {columns.map((col) => (
               <TableHead
                 key={col.key}
                 className={cn(
-                  "bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-400",
                   col.sortable && "cursor-pointer select-none"
                 )}
                 onClick={col.sortable ? () => handleSort(col.key) : undefined}
@@ -101,7 +102,7 @@ export function DataTable<T>({
                           <ArrowDown className="h-3 w-3" />
                         )
                       ) : (
-                        <ChevronsUpDown className="h-3 w-3 text-zinc-600" />
+                        <ChevronsUpDown className="h-3 w-3 text-[#9B9B9B]" />
                       )}
                     </span>
                   )}
@@ -112,10 +113,10 @@ export function DataTable<T>({
         </TableHeader>
         <TableBody>
           {paginatedData.length === 0 ? (
-            <TableRow className="border-zinc-800">
+            <TableRow>
               <TableCell
                 colSpan={columns.length}
-                className="py-8 text-center text-sm text-zinc-500"
+                className="py-8 text-center text-sm text-[#9B9B9B]"
               >
                 No data
               </TableCell>
@@ -125,8 +126,9 @@ export function DataTable<T>({
               <TableRow
                 key={i}
                 className={cn(
-                  "border-zinc-800 bg-zinc-950 hover:bg-zinc-800/50",
-                  onRowClick && "cursor-pointer"
+                  "hover:bg-[#F8F7F4]",
+                  onRowClick && "cursor-pointer",
+                  rowClassName?.(row)
                 )}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
@@ -134,7 +136,7 @@ export function DataTable<T>({
                   <TableCell
                     key={col.key}
                     className={cn(col.mono && "font-mono")}
-                    style={col.mono ? { fontFamily: "var(--font-mono)" } : undefined}
+                    style={col.mono ? { fontFamily: "var(--font-jetbrains-mono)" } : undefined}
                   >
                     {col.render(row)}
                   </TableCell>
@@ -146,8 +148,8 @@ export function DataTable<T>({
       </Table>
 
       {pageSize && totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3">
-          <span className="text-xs text-zinc-500">
+        <div className="flex items-center justify-between border-t border-[#E6E4DF] px-4 py-3">
+          <span className="text-xs text-[#9B9B9B]">
             Page {page + 1} of {totalPages}
           </span>
           <div className="flex items-center gap-1">
@@ -156,7 +158,7 @@ export function DataTable<T>({
               size="icon-xs"
               disabled={page === 0}
               onClick={() => setPage((p) => p - 1)}
-              className="text-zinc-400 hover:text-white disabled:text-zinc-700"
+              className="text-[#6B6B6B] hover:text-[#1A1A19] disabled:text-[#D5D3CE]"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -165,7 +167,7 @@ export function DataTable<T>({
               size="icon-xs"
               disabled={page >= totalPages - 1}
               onClick={() => setPage((p) => p + 1)}
-              className="text-zinc-400 hover:text-white disabled:text-zinc-700"
+              className="text-[#6B6B6B] hover:text-[#1A1A19] disabled:text-[#D5D3CE]"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>

@@ -33,6 +33,40 @@ export function formatPercent(value: number): string {
   return `${value.toFixed(2)}%`;
 }
 
+export function formatSpreadBps(spread: string | number | null): string {
+  if (spread === null || spread === undefined) return "\u2014";
+  const num = typeof spread === "string" ? parseFloat(spread) : spread;
+  if (isNaN(num)) return "\u2014";
+  return `${(num * 10000).toFixed(0)} bps`;
+}
+
+export function formatPriceChange(change: string | null): {
+  text: string;
+  positive: boolean | null;
+} {
+  if (!change) return { text: "\u2014", positive: null };
+  const pct = parseFloat(change) * 100;
+  if (isNaN(pct)) return { text: "\u2014", positive: null };
+  return {
+    text: `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`,
+    positive: pct >= 0,
+  };
+}
+
+export function formatEndDate(iso: string | null): string {
+  if (!iso) return "\u2014";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function probSumDeviation(prices: string[]): number {
+  const sum = prices.reduce((acc, p) => acc + parseFloat(p || "0"), 0);
+  return Math.abs(sum - 1) * 100;
+}
+
 export function timeAgo(isoString: string): string {
   const diff = Date.now() - new Date(isoString).getTime();
   const secs = Math.floor(diff / 1000);

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arb_core::{
     ArbType, CorrelationRelationship, MarketCorrelation, MarketState, Opportunity, Side, TradeLeg,
     config::{CrossMarketConfig, StrategyConfig},
@@ -10,7 +12,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::sync::Arc;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -56,7 +57,7 @@ impl CrossMarketDetector {
     fn check_pair(
         &self,
         pair: &MarketCorrelation,
-        markets: &[MarketState],
+        markets: &[Arc<MarketState>],
     ) -> Result<Vec<Opportunity>> {
         let mut opps = Vec::new();
 
@@ -149,6 +150,15 @@ impl CrossMarketDetector {
         gross_edge: Decimal,
         opps: &mut Vec<Opportunity>,
     ) -> Result<()> {
+        // Ensure token_ids and orderbooks are aligned before accessing index 0.
+        // A partial orderbook fetch could leave orderbooks shorter than token_ids,
+        // causing the wrong token to be paired with the wrong book.
+        if market_a.token_ids.len() != market_a.orderbooks.len()
+            || market_b.token_ids.len() != market_b.orderbooks.len()
+        {
+            return Ok(());
+        }
+
         let book_a = match Self::yes_book(market_a) {
             Some(b) => b,
             None => return Ok(()),
@@ -226,7 +236,7 @@ impl ArbDetector for CrossMarketDetector {
         ArbType::CrossMarket
     }
 
-    async fn scan(&self, markets: &[MarketState]) -> Result<Vec<Opportunity>> {
+    async fn scan(&self, markets: &[Arc<MarketState>]) -> Result<Vec<Opportunity>> {
         let mut all_opps = Vec::new();
 
         for pair in self.correlation_graph.pairs() {

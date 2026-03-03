@@ -110,19 +110,19 @@ const METHOD_META: {
     key: "monte_carlo",
     label: "Monte Carlo",
     color: "#3b82f6",
-    badgeClass: "bg-blue-500/10 text-blue-500",
+    badgeClass: "bg-blue-50 text-blue-600",
   },
   {
     key: "variance_reduced",
     label: "Variance-Reduced",
-    color: "#10b981",
-    badgeClass: "bg-emerald-500/10 text-emerald-500",
+    color: "#2D6A4F",
+    badgeClass: "bg-[#DAE9E0] text-[#2D6A4F]",
   },
   {
     key: "particle_filter",
     label: "Particle Filter",
     color: "#f59e0b",
-    badgeClass: "bg-amber-500/10 text-amber-500",
+    badgeClass: "bg-amber-50 text-amber-600",
   },
 ];
 
@@ -220,9 +220,9 @@ export default function SimulationPage() {
     return {
       tooltip: {
         trigger: "axis" as const,
-        backgroundColor: "#18181b",
-        borderColor: "#3f3f46",
-        textStyle: { color: "#d4d4d8", fontFamily: "var(--font-mono)" },
+        backgroundColor: "#FFFFFF",
+        borderColor: "#E6E4DF",
+        textStyle: { color: "#1A1A19", fontFamily: "var(--font-jetbrains-mono)" },
         formatter: (
           params: Array<{ name: string; value: number; seriesName: string }>
         ) => {
@@ -244,21 +244,21 @@ export default function SimulationPage() {
         type: "value" as const,
         min: 0,
         max: 1,
-        axisLine: { lineStyle: { color: "#3f3f46" } },
+        axisLine: { lineStyle: { color: "#E6E4DF" } },
         axisLabel: {
-          color: "#a1a1aa",
+          color: "#6B6B6B",
           fontSize: 11,
-          fontFamily: "var(--font-mono)",
+          fontFamily: "var(--font-jetbrains-mono)",
           formatter: (v: number) => pct(v),
         },
-        splitLine: { lineStyle: { color: "#27272a" } },
+        splitLine: { lineStyle: { color: "#F0EEEA" } },
       },
       yAxis: {
         type: "category" as const,
         data: categories,
         inverse: true,
-        axisLine: { lineStyle: { color: "#3f3f46" } },
-        axisLabel: { color: "#a1a1aa", fontSize: 12 },
+        axisLine: { lineStyle: { color: "#E6E4DF" } },
+        axisLabel: { color: "#6B6B6B", fontSize: 12 },
         axisTick: { show: false },
       },
       series: [
@@ -279,7 +279,7 @@ export default function SimulationPage() {
           stack: "ci",
           silent: true,
           itemStyle: {
-            color: "rgba(161,161,170,0.2)",
+            color: "rgba(214,210,206,0.3)",
             borderRadius: 2,
           },
           data: ciUppers.map((hi, i) => hi - ciLowers[i]),
@@ -292,7 +292,7 @@ export default function SimulationPage() {
           symbolSize: 14,
           data: probabilities.map((p, i) => ({
             value: [p, categories[i]],
-            itemStyle: { color: colors[i], borderColor: "#09090b", borderWidth: 2 },
+            itemStyle: { color: colors[i], borderColor: "#F8F7F4", borderWidth: 2 },
           })),
           z: 10,
         },
@@ -307,16 +307,16 @@ export default function SimulationPage() {
             silent: true,
             symbol: "none",
             lineStyle: {
-              color: "#ef4444",
+              color: "#B44C3F",
               type: "dashed" as const,
               width: 1.5,
             },
             data: [{ xAxis: result.market_price }],
             label: {
               formatter: `Market ${pct(result.market_price)}`,
-              color: "#ef4444",
+              color: "#B44C3F",
               fontSize: 11,
-              fontFamily: "var(--font-mono)",
+              fontFamily: "var(--font-jetbrains-mono)",
             },
           },
         },
@@ -334,39 +334,39 @@ export default function SimulationPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Simulation</h1>
-        <p className="mt-1 text-sm text-zinc-400">
+        <h1 className="text-2xl font-bold text-[#1A1A19]">Simulation</h1>
+        <p className="mt-1 text-sm text-[#6B6B6B]">
           Run Monte Carlo, variance-reduced, and particle filter simulations
           against market pricing
         </p>
       </div>
 
       {/* Configuration Card */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+      <div className="rounded-2xl bg-white p-6">
+        <h2 className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
           Configuration
         </h2>
 
         {markets.length === 0 ? (
-          <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <div className="mt-4 flex items-center gap-2 text-sm text-[#9B9B9B]">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
             No markets available &mdash; start the arb engine first
           </div>
         ) : (
           <div className="mt-4 space-y-5">
             {/* Market selector */}
             <div className="space-y-2">
-              <Label className="text-zinc-300">Market</Label>
+              <Label className="text-[#1A1A19]">Market</Label>
               <Select value={conditionId} onValueChange={setConditionId}>
-                <SelectTrigger className="w-full max-w-xl border-zinc-700 bg-zinc-950 text-zinc-200">
+                <SelectTrigger className="w-full max-w-xl border-[#E6E4DF] bg-[#F8F7F4] text-[#1A1A19]">
                   <SelectValue placeholder="Select a market..." />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 border-zinc-700 bg-zinc-900">
+                <SelectContent className="max-h-72 border-[#E6E4DF] bg-white">
                   {markets.map((m) => (
                     <SelectItem
                       key={m.condition_id}
                       value={m.condition_id}
-                      className="text-zinc-200"
+                      className="text-[#1A1A19]"
                     >
                       <span className="line-clamp-1">{m.question}</span>
                     </SelectItem>
@@ -375,7 +375,7 @@ export default function SimulationPage() {
               </Select>
               {selectedMarketQuestion && (
                 <p
-                  className="text-xs text-zinc-500 font-mono truncate max-w-xl"
+                  className="text-xs text-[#9B9B9B] font-mono truncate max-w-xl"
                   title={conditionId}
                 >
                   condition_id: {conditionId}
@@ -385,7 +385,7 @@ export default function SimulationPage() {
 
             {/* Number of paths */}
             <div className="space-y-2">
-              <Label className="text-zinc-300">Number of Paths</Label>
+              <Label className="text-[#1A1A19]">Number of Paths</Label>
               <Input
                 type="number"
                 min={100}
@@ -395,9 +395,9 @@ export default function SimulationPage() {
                 onChange={(e) =>
                   setNumPaths(Math.max(100, parseInt(e.target.value) || 10000))
                 }
-                className="w-48 border-zinc-700 bg-zinc-950 text-zinc-200 font-mono"
+                className="w-48 border-[#E6E4DF] bg-[#F8F7F4] text-[#1A1A19] font-mono"
               />
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-[#9B9B9B]">
                 Parameters are configured server-side. Defaults from arb config
                 will be used.
               </p>
@@ -407,7 +407,7 @@ export default function SimulationPage() {
             <Button
               onClick={runSimulation}
               disabled={!canRun}
-              className="bg-blue-600 text-white hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500"
+              className="bg-[#2D6A4F] text-white hover:bg-[#245840] disabled:bg-[#E6E4DF] disabled:text-[#9B9B9B]"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               {loading ? "Running Simulation..." : "Run Simulation"}
@@ -418,14 +418,14 @@ export default function SimulationPage() {
 
       {/* Error state */}
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-5">
+        <div className="rounded-lg border border-[#B44C3F]/30 bg-[#F5E0DD] p-5">
           <div className="flex items-start gap-3">
-            <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+            <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#B44C3F]" />
             <div>
-              <h3 className="text-sm font-medium text-red-400">
+              <h3 className="text-sm font-medium text-[#B44C3F]">
                 Simulation Failed
               </h3>
-              <p className="mt-1 text-sm text-red-300/80">{error}</p>
+              <p className="mt-1 text-sm text-[#B44C3F]/80">{error}</p>
             </div>
           </div>
         </div>
@@ -434,8 +434,8 @@ export default function SimulationPage() {
       {/* Loading skeleton */}
       {loading && (
         <div className="space-y-4">
-          <div className="h-48 animate-pulse rounded-lg border border-zinc-800 bg-zinc-900" />
-          <div className="h-64 animate-pulse rounded-lg border border-zinc-800 bg-zinc-900" />
+          <div className="h-48 animate-pulse rounded-2xl bg-white" />
+          <div className="h-64 animate-pulse rounded-2xl bg-white" />
         </div>
       )}
 
@@ -443,51 +443,51 @@ export default function SimulationPage() {
       {result && !loading && (
         <div className="space-y-6">
           {/* Comparison Table */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900">
-            <div className="border-b border-zinc-800 px-5 py-4">
-              <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+          <div className="rounded-2xl bg-white">
+            <div className="border-b border-[#E6E4DF] px-5 py-4">
+              <h2 className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                 Method Comparison
               </h2>
             </div>
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-zinc-800 hover:bg-transparent">
-                    <TableHead className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  <TableRow className="border-[#E6E4DF] hover:bg-transparent">
+                    <TableHead className="text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                       Method
                     </TableHead>
-                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                       Probability
                     </TableHead>
-                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                       Std Error
                     </TableHead>
-                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                       95% CI
                     </TableHead>
-                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                    <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                       ESS
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {/* Market price reference row */}
-                  <TableRow className="border-zinc-800 bg-zinc-950">
+                  <TableRow className="border-[#E6E4DF] bg-[#F8F7F4]">
                     <TableCell>
-                      <span className="text-sm text-zinc-400">
+                      <span className="text-sm text-[#6B6B6B]">
                         Market Price
                       </span>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm text-zinc-200">
+                    <TableCell className="text-right font-mono text-sm text-[#1A1A19]">
                       {pct(result.market_price)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm text-zinc-600">
+                    <TableCell className="text-right font-mono text-sm text-[#9B9B9B]">
                       &mdash;
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm text-zinc-600">
+                    <TableCell className="text-right font-mono text-sm text-[#9B9B9B]">
                       &mdash;
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm text-zinc-600">
+                    <TableCell className="text-right font-mono text-sm text-[#9B9B9B]">
                       &mdash;
                     </TableCell>
                   </TableRow>
@@ -500,10 +500,10 @@ export default function SimulationPage() {
                       <TableRow
                         key={m.key}
                         className={cn(
-                          "border-zinc-800 transition-colors",
+                          "border-[#E6E4DF] transition-colors",
                           isClosest
-                            ? "bg-zinc-800/50"
-                            : "bg-zinc-950 hover:bg-zinc-800/30"
+                            ? "bg-[#F8F7F4]"
+                            : "bg-[#F8F7F4] hover:bg-[#F8F7F4]"
                         )}
                       >
                         <TableCell>
@@ -512,30 +512,30 @@ export default function SimulationPage() {
                               className="inline-block h-2.5 w-2.5 rounded-full"
                               style={{ backgroundColor: m.color }}
                             />
-                            <span className="text-sm text-zinc-200">
+                            <span className="text-sm text-[#1A1A19]">
                               {m.label}
                             </span>
                             {isClosest && (
                               <Badge
-                                className="bg-emerald-500/10 text-emerald-500 text-[10px] px-1.5 py-0"
+                                className="bg-[#DAE9E0] text-[#2D6A4F] text-[10px] px-1.5 py-0"
                               >
                                 Closest
                               </Badge>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm text-zinc-200">
+                        <TableCell className="text-right font-mono text-sm text-[#1A1A19]">
                           {pct(data.probability)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm text-zinc-400">
+                        <TableCell className="text-right font-mono text-sm text-[#6B6B6B]">
                           {data.std_error !== undefined
                             ? pct(data.std_error)
                             : "\u2014"}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm text-zinc-400">
+                        <TableCell className="text-right font-mono text-sm text-[#6B6B6B]">
                           [{pct(data.ci_lower)}, {pct(data.ci_upper)}]
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm text-zinc-400">
+                        <TableCell className="text-right font-mono text-sm text-[#6B6B6B]">
                           {data.ess !== undefined
                             ? data.ess.toLocaleString()
                             : "\u2014"}
@@ -549,9 +549,9 @@ export default function SimulationPage() {
           </div>
 
           {/* Probability Comparison Chart */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900">
-            <div className="border-b border-zinc-800 px-5 py-4">
-              <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+          <div className="rounded-2xl bg-white">
+            <div className="border-b border-[#E6E4DF] px-5 py-4">
+              <h2 className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                 Probability Comparison
               </h2>
             </div>
@@ -561,7 +561,6 @@ export default function SimulationPage() {
                   option={chartOption}
                   style={{ height: 220, width: "100%" }}
                   opts={{ renderer: "canvas" }}
-                  theme="dark"
                 />
               )}
             </div>
@@ -573,37 +572,37 @@ export default function SimulationPage() {
               className={cn(
                 "rounded-lg border p-5",
                 summary.divergencePp > 5
-                  ? "border-amber-500/30 bg-amber-500/5"
-                  : "border-zinc-800 bg-zinc-900"
+                  ? "border-amber-500/30 bg-amber-50"
+                  : "border-[#E6E4DF] bg-white"
               )}
             >
               <div className="flex items-start gap-3">
                 {summary.divergencePp > 5 && (
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                 )}
                 <div className="space-y-1">
                   <h3
                     className={cn(
                       "text-sm font-medium",
                       summary.divergencePp > 5
-                        ? "text-amber-400"
-                        : "text-zinc-300"
+                        ? "text-amber-600"
+                        : "text-[#1A1A19]"
                     )}
                   >
                     {summary.divergencePp > 5
                       ? "Significant Divergence Detected"
                       : "Simulation Summary"}
                   </h3>
-                  <p className="text-sm text-zinc-400">
+                  <p className="text-sm text-[#6B6B6B]">
                     Market implies{" "}
-                    <span className="font-mono text-zinc-200">
+                    <span className="font-mono text-[#1A1A19]">
                       {pct(result.market_price)}
                     </span>
                     , simulations suggest{" "}
-                    <span className="font-mono text-zinc-200">
+                    <span className="font-mono text-[#1A1A19]">
                       {pct(summary.avgProb)}
                     </span>
-                    <span className="ml-2 text-zinc-500">
+                    <span className="ml-2 text-[#9B9B9B]">
                       ({summary.divergencePp.toFixed(1)}pp divergence)
                     </span>
                   </p>

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use rust_decimal::Decimal;
 
@@ -14,7 +16,7 @@ pub trait MarketDataSource: Send + Sync {
 #[async_trait]
 pub trait ArbDetector: Send + Sync {
     fn arb_type(&self) -> ArbType;
-    async fn scan(&self, markets: &[MarketState]) -> Result<Vec<Opportunity>>;
+    async fn scan(&self, markets: &[Arc<MarketState>]) -> Result<Vec<Opportunity>>;
 }
 
 pub trait SlippageEstimator: Send + Sync {
@@ -43,7 +45,7 @@ pub trait TradeExecutor: Send + Sync {
 
 pub trait RiskManager: Send + Sync {
     fn check_opportunity(&self, opp: &Opportunity) -> Result<RiskDecision>;
-    fn record_execution(&mut self, report: &ExecutionReport);
+    fn record_execution(&mut self, report: &ExecutionReport, arb_type: ArbType);
     fn is_kill_switch_active(&self) -> bool;
     fn activate_kill_switch(&mut self, reason: &str);
     fn daily_pnl(&self) -> Decimal;

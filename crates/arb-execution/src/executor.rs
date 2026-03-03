@@ -85,6 +85,7 @@ impl LiveTradeExecutor {
         Ok(LegReport {
             order_id: uuid::Uuid::new_v4().to_string(),
             token_id: leg.token_id.clone(),
+            condition_id: String::new(),
             side: leg.side,
             expected_vwap: leg.vwap_estimate,
             actual_fill_price: leg.vwap_estimate,

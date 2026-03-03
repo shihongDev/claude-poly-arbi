@@ -89,7 +89,7 @@ impl ArbEngine {
             )));
         }
 
-        let edge_calculator = EdgeCalculator::default_with_config(config.slippage.clone());
+        let edge_calculator = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
 
         // Executor: paper by default, live requires --live flag
         let executor: Box<dyn TradeExecutor> = Box::new(PaperTradeExecutor::default_pessimism());
@@ -155,7 +155,7 @@ impl ArbEngine {
                         .await
                     {
                         Ok(books) => {
-                            let mut updated = market.clone();
+                            let mut updated = (**market).clone();
                             updated.orderbooks = books;
                             self.cache.update_one(updated);
                             self.poller.record_poll(&market.condition_id);
@@ -218,7 +218,7 @@ impl ArbEngine {
                         let sized_opp = opp.with_max_size(max_size);
                         match self.executor.execute_opportunity(&sized_opp).await {
                             Ok(report) => {
-                                self.risk_manager.record_execution(&report);
+                                self.risk_manager.record_execution(&report, opp.arb_type);
                                 self.monitor.log_execution(&report);
                             }
                             Err(e) => {
@@ -240,7 +240,7 @@ impl ArbEngine {
                         let sized_opp = opp.with_max_size(new_size);
                         match self.executor.execute_opportunity(&sized_opp).await {
                             Ok(report) => {
-                                self.risk_manager.record_execution(&report);
+                                self.risk_manager.record_execution(&report, opp.arb_type);
                                 self.monitor.log_execution(&report);
                             }
                             Err(e) => {

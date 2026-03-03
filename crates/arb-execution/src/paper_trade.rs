@@ -60,12 +60,18 @@ impl PaperTradeExecutor {
     }
 
     /// Simulate the fill price with pessimism adjustment.
+    ///
+    /// Uses additive slippage for symmetry: both buy and sell experience
+    /// the same absolute price impact (`vwap * (factor - 1)`), just in
+    /// opposite directions. The old multiplicative approach (`* factor` vs
+    /// `/ factor`) was asymmetric: +10% buy vs -9.1% sell.
     fn pessimistic_price(&self, vwap: Decimal, side: Side) -> Decimal {
+        let slippage = vwap * (self.pessimism_factor - Decimal::ONE);
         match side {
             // Buying: pessimism means we pay MORE than VWAP
-            Side::Buy => vwap * self.pessimism_factor,
+            Side::Buy => vwap + slippage,
             // Selling: pessimism means we receive LESS than VWAP
-            Side::Sell => vwap / self.pessimism_factor,
+            Side::Sell => vwap - slippage,
         }
     }
 
@@ -123,6 +129,7 @@ impl TradeExecutor for PaperTradeExecutor {
             leg_reports.push(LegReport {
                 order_id: Uuid::new_v4().to_string(),
                 token_id: leg.token_id.clone(),
+                condition_id: condition_id.clone(),
                 side: leg.side,
                 expected_vwap: leg.vwap_estimate,
                 actual_fill_price: fill_price,

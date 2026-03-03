@@ -17,19 +17,24 @@ interface DashboardStore {
   setStatus: (s: StatusResponse) => void;
 
   opportunities: Opportunity[];
+  opportunitiesLoading: boolean;
   addOpportunity: (o: Opportunity) => void;
   setOpportunities: (o: Opportunity[]) => void;
 
   positions: Position[];
+  positionsLoading: boolean;
   setPositions: (p: Position[]) => void;
 
   metrics: MetricsSnapshot | null;
+  metricsLoading: boolean;
   setMetrics: (m: MetricsSnapshot) => void;
 
   markets: MarketState[];
+  marketsLoading: boolean;
   setMarkets: (m: MarketState[]) => void;
 
   history: ExecutionReport[];
+  historyLoading: boolean;
   addExecution: (e: ExecutionReport) => void;
   setHistory: (h: ExecutionReport[]) => void;
 
@@ -53,25 +58,31 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     }),
 
   opportunities: [],
+  opportunitiesLoading: true,
   addOpportunity: (o) =>
     set((s) => ({
       opportunities: [o, ...s.opportunities].slice(0, 200),
+      opportunitiesLoading: false,
     })),
-  setOpportunities: (opportunities) => set({ opportunities }),
+  setOpportunities: (opportunities) => set({ opportunities, opportunitiesLoading: false }),
 
   positions: [],
-  setPositions: (positions) => set({ positions }),
+  positionsLoading: true,
+  setPositions: (positions) => set({ positions, positionsLoading: false }),
 
   metrics: null,
-  setMetrics: (metrics) => set({ metrics }),
+  metricsLoading: true,
+  setMetrics: (metrics) => set({ metrics, metricsLoading: false }),
 
   markets: [],
-  setMarkets: (markets) => set({ markets }),
+  marketsLoading: true,
+  setMarkets: (markets) => set({ markets, marketsLoading: false }),
 
   history: [],
+  historyLoading: true,
   addExecution: (e) =>
-    set((s) => ({ history: [e, ...s.history].slice(0, 500) })),
-  setHistory: (history) => set({ history }),
+    set((s) => ({ history: [e, ...s.history].slice(0, 500), historyLoading: false })),
+  setHistory: (history) => set({ history, historyLoading: false }),
 
   killSwitchActive: false,
   killSwitchReason: null,
@@ -88,15 +99,25 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
               data as Opportunity,
               ...s.opportunities,
             ].slice(0, 200),
+            opportunitiesLoading: false,
+          };
+        case "opportunities_batch":
+          return {
+            opportunities: [
+              ...(data as Opportunity[]),
+              ...s.opportunities,
+            ].slice(0, 200),
+            opportunitiesLoading: false,
           };
         case "trade_executed":
           return {
             history: [data as ExecutionReport, ...s.history].slice(0, 500),
+            historyLoading: false,
           };
         case "position_update":
-          return { positions: data as Position[] };
+          return { positions: data as Position[], positionsLoading: false };
         case "metrics_update":
-          return { metrics: data as MetricsSnapshot };
+          return { metrics: data as MetricsSnapshot, metricsLoading: false };
         case "kill_switch_change": {
           const ks = data as { active: boolean; reason?: string };
           return {
@@ -113,7 +134,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
           for (const m of incoming) {
             existing.set(m.condition_id, m);
           }
-          return { markets: Array.from(existing.values()) };
+          return { markets: Array.from(existing.values()), marketsLoading: false };
         }
         case "market_update": {
           const market = data as MarketState;

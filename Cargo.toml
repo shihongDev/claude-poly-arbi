@@ -61,3 +61,8 @@ thiserror = "2"
 anyhow = "1"
 dashmap = "6"
 dirs = "6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,4 +1,4 @@
-use axum::{Json, extract::{Query, State}};
+use axum::{Json, extract::{Query, State}, http::StatusCode, response::IntoResponse};
 use serde::Deserialize;
 
 use crate::state::AppState;
@@ -11,10 +11,17 @@ pub struct HistoryParams {
 pub async fn list(
     Query(params): Query<HistoryParams>,
     State(state): State<AppState>,
-) -> Json<serde_json::Value> {
+) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(50);
     let history = state.execution_history.read().unwrap();
 
     let entries: Vec<_> = history.iter().rev().take(limit).cloned().collect();
-    Json(serde_json::to_value(&entries).unwrap_or_default())
+    match serde_json::to_value(&entries) {
+        Ok(json) => (StatusCode::OK, Json(json)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Serialization failed: {e}")})),
+        )
+            .into_response(),
+    }
 }

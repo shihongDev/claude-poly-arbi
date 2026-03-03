@@ -1,11 +1,11 @@
+use std::sync::Arc;
+
 use arb_core::{
     Opportunity, TradeLeg, Side,
     error::Result,
+    traits::SlippageEstimator,
 };
 use arb_data::market_cache::MarketCache;
-use arb_data::orderbook::OrderbookProcessor;
-use arb_core::config::SlippageConfig;
-use arb_core::traits::SlippageEstimator;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -16,20 +16,20 @@ use rust_decimal_macros::dec;
 /// as a percentage of notional traded.
 pub struct EdgeCalculator {
     fee_rate: Decimal,
-    slippage_estimator: OrderbookProcessor,
+    slippage_estimator: Arc<dyn SlippageEstimator>,
 }
 
 impl EdgeCalculator {
-    pub fn new(fee_rate: Decimal, slippage_config: SlippageConfig) -> Self {
+    pub fn new(fee_rate: Decimal, slippage_estimator: Arc<dyn SlippageEstimator>) -> Self {
         Self {
             fee_rate,
-            slippage_estimator: OrderbookProcessor::new(slippage_config),
+            slippage_estimator,
         }
     }
 
     /// Default with Polymarket's 2% fee rate.
-    pub fn default_with_config(slippage_config: SlippageConfig) -> Self {
-        Self::new(dec!(0.02), slippage_config)
+    pub fn default_with_estimator(slippage_estimator: Arc<dyn SlippageEstimator>) -> Self {
+        Self::new(dec!(0.02), slippage_estimator)
     }
 
     /// Refine an opportunity's edge using real VWAP from the market cache.
@@ -39,23 +39,27 @@ impl EdgeCalculator {
         let mut total_vwap_cost = Decimal::ZERO;
         let mut estimated_vwaps = Vec::with_capacity(opp.legs.len());
 
+        // Pre-fetch all relevant markets from cache once (cheap Arc clones)
+        let cached_markets: Vec<_> = opp
+            .markets
+            .iter()
+            .filter_map(|cid| cache.get(cid))
+            .collect();
+
         for leg in &mut opp.legs {
-            // Find the orderbook for this token in the cache
-            let market = opp
-                .markets
+            // Find the orderbook for this token in the cached markets
+            let market = cached_markets
                 .iter()
-                .find_map(|cid| cache.get(cid))
-                .and_then(|m| {
+                .find_map(|m| {
                     m.orderbooks
                         .iter()
                         .find(|ob| ob.token_id == leg.token_id)
-                        .cloned()
                 });
 
             if let Some(book) = market {
                 let vwap_est = self
                     .slippage_estimator
-                    .estimate_vwap(&book, leg.side, leg.target_size)?;
+                    .estimate_vwap(book, leg.side, leg.target_size)?;
 
                 leg.vwap_estimate = vwap_est.vwap;
                 estimated_vwaps.push(vwap_est.vwap);
@@ -93,15 +97,18 @@ impl EdgeCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arb_data::orderbook::OrderbookProcessor;
     use rust_decimal_macros::dec;
 
     fn default_calc() -> EdgeCalculator {
-        EdgeCalculator::default_with_config(arb_core::config::SlippageConfig {
-            max_slippage_bps: 100,
-            order_split_threshold: 500,
-            prefer_post_only: true,
-            vwap_depth_levels: 10,
-        })
+        let estimator: Arc<dyn SlippageEstimator> =
+            Arc::new(OrderbookProcessor::new(arb_core::config::SlippageConfig {
+                max_slippage_bps: 100,
+                order_split_threshold: 500,
+                prefer_post_only: true,
+                vwap_depth_levels: 10,
+            }));
+        EdgeCalculator::default_with_estimator(estimator)
     }
 
     #[test]

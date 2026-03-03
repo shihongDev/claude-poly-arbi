@@ -1,6 +1,8 @@
-use axum::{Json, extract::State};
+use std::sync::atomic::Ordering;
+
 use arb_core::traits::RiskManager;
 use arb_risk::kill_switch::KillSwitch;
+use axum::{Json, extract::State};
 use serde::Deserialize;
 
 use crate::state::AppState;
@@ -18,6 +20,9 @@ pub async fn kill(
         let mut risk = state.risk_limits.lock().unwrap();
         risk.activate_kill_switch(&body.reason);
     }
+
+    // Mirror to lock-free AtomicBool so engine loop doesn't need the mutex
+    state.kill_switch_active.store(true, Ordering::Relaxed);
 
     // Broadcast kill switch change via WS using the standard {type, data} format
     let event = serde_json::json!({
@@ -37,7 +42,8 @@ pub async fn resume(State(state): State<AppState>) -> Json<serde_json::Value> {
     let mut ks = KillSwitch::new();
     ks.deactivate();
 
-    // The file-based kill switch will be re-read by RiskLimits on next tick
+    // Mirror to lock-free AtomicBool so engine loop sees the change immediately
+    state.kill_switch_active.store(false, Ordering::Relaxed);
 
     let event = serde_json::json!({
         "type": "kill_switch_change",

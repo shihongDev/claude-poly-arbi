@@ -1,15 +1,15 @@
+use std::sync::Arc;
+
 use arb_core::{
-    ArbType, Opportunity, Side, TradeLeg,
+    ArbType, MarketState, Opportunity, Side, TradeLeg,
     config::{IntraMarketConfig, StrategyConfig},
     error::Result,
     traits::{ArbDetector, SlippageEstimator},
-    MarketState,
 };
 use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::sync::Arc;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -225,7 +225,7 @@ impl ArbDetector for IntraMarketDetector {
         ArbType::IntraMarket
     }
 
-    async fn scan(&self, markets: &[MarketState]) -> Result<Vec<Opportunity>> {
+    async fn scan(&self, markets: &[Arc<MarketState>]) -> Result<Vec<Opportunity>> {
         let mut all_opps = Vec::new();
         for market in markets {
             match self.check_market(market) {

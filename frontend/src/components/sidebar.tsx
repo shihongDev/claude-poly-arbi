@@ -5,13 +5,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Target,
-  Wallet,
-  TrendingUp,
+  FlaskConical,
   Store,
   Settings,
   History,
-  FlaskConical,
   Menu,
   X,
 } from "lucide-react";
@@ -22,14 +19,11 @@ import { ConnectionStatus } from "@/components/connection-status";
 import { useDashboardStore } from "@/store";
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/opportunities", label: "Opportunities", icon: Target },
-  { href: "/positions", label: "Positions", icon: Wallet },
-  { href: "/performance", label: "Performance", icon: TrendingUp },
-  { href: "/markets", label: "Markets", icon: Store },
+  { href: "/", label: "Markets", icon: Store },
+  { href: "/dashboard", label: "Portfolio", icon: LayoutDashboard },
+  { href: "/opportunities", label: "Playground", icon: FlaskConical },
   { href: "/controls", label: "Controls", icon: Settings },
   { href: "/history", label: "History", icon: History },
-  { href: "/simulation", label: "Simulation", icon: FlaskConical },
 ];
 
 export function Sidebar() {
@@ -43,13 +37,13 @@ export function Sidebar() {
     <>
       {/* Logo */}
       <div className="px-5 py-6">
-        <h1 className="text-lg font-bold text-white">
-          Polymarket <span className="text-emerald-500">Arb</span>
+        <h1 className="text-lg font-bold text-[#1A1A19]">
+          Polymarket <span className="text-[#2D6A4F]">Arb</span>
         </h1>
       </div>
 
       {/* Nav links */}
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="flex-1 space-y-0.5 px-3">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
@@ -58,10 +52,10 @@ export function Sidebar() {
               href={item.href}
               onClick={() => setMobileOpen(false)}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "border-l-2 border-emerald-500 bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "bg-[#DAE9E0] text-[#2D6A4F]"
+                  : "text-[#6B6B6B] hover:bg-[#F0EEEA] hover:text-[#1A1A19]"
               )}
             >
               <item.icon className="h-4 w-4 shrink-0" />
@@ -72,15 +66,15 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom section */}
-      <div className="border-t border-zinc-800 px-5 py-4">
+      <div className="border-t border-[#E6E4DF] px-5 py-4">
         <div className="space-y-3">
           <ConnectionStatus />
           <Badge
             className={cn(
-              "text-xs",
+              "text-xs rounded-full",
               mode === "Live"
-                ? "bg-emerald-500/10 text-emerald-500"
-                : "bg-blue-500/10 text-blue-500"
+                ? "bg-[#DAE9E0] text-[#2D6A4F]"
+                : "bg-blue-50 text-blue-600"
             )}
           >
             {mode} Mode
@@ -93,24 +87,24 @@ export function Sidebar() {
   return (
     <>
       {/* Mobile hamburger */}
-      <div className="fixed left-0 top-0 z-50 flex h-14 w-full items-center bg-zinc-950 px-4 lg:hidden">
+      <div className="fixed left-0 top-0 z-50 flex h-14 w-full items-center bg-white px-4 lg:hidden border-b border-[#E6E4DF]">
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="text-zinc-400 hover:text-white"
+          className="text-[#6B6B6B] hover:text-[#1A1A19]"
         >
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
-        <h1 className="ml-3 text-lg font-bold text-white">
-          Polymarket <span className="text-emerald-500">Arb</span>
+        <h1 className="ml-3 text-lg font-bold text-[#1A1A19]">
+          Polymarket <span className="text-[#2D6A4F]">Arb</span>
         </h1>
       </div>
 
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/20 lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -118,7 +112,7 @@ export function Sidebar() {
       {/* Mobile sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] w-60 flex-col bg-zinc-950 transition-transform lg:hidden",
+          "fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] w-60 flex-col bg-white transition-transform lg:hidden",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -126,7 +120,7 @@ export function Sidebar() {
       </aside>
 
       {/* Desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 lg:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-[#E6E4DF] bg-white lg:flex">
         {navContent}
       </aside>
     </>

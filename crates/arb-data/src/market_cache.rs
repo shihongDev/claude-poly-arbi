@@ -1,50 +1,83 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use arb_core::MarketState;
 use dashmap::DashMap;
 
 /// Thread-safe market cache backed by DashMap.
 ///
 /// Updated by the poller, read concurrently by arb detectors.
-/// Keyed by `condition_id`.
+/// Keyed by `condition_id`. Values are `Arc<MarketState>` to avoid
+/// expensive deep clones on every read — readers get a cheap ref-count bump.
+///
+/// Tracks a monotonically increasing `generation` counter. Each update stamps
+/// the market with the current generation, enabling change detection:
+/// detectors only need to scan markets where `last_updated_gen > last_scan_gen`.
 pub struct MarketCache {
-    markets: DashMap<String, MarketState>,
+    markets: DashMap<String, Arc<MarketState>>,
+    generation: AtomicU64,
 }
 
 impl MarketCache {
     pub fn new() -> Self {
         Self {
             markets: DashMap::new(),
+            generation: AtomicU64::new(0),
         }
     }
 
-    /// Insert or update multiple markets.
+    /// Current generation counter.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    /// Insert or update multiple markets, stamping each with the current generation.
     pub fn update(&self, markets: &[MarketState]) {
+        let next_gen = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
         for market in markets {
+            let mut stamped = market.clone();
+            stamped.last_updated_gen = next_gen;
             self.markets
-                .insert(market.condition_id.clone(), market.clone());
+                .insert(stamped.condition_id.clone(), Arc::new(stamped));
         }
     }
 
-    /// Insert or update a single market.
-    pub fn update_one(&self, market: MarketState) {
-        self.markets.insert(market.condition_id.clone(), market);
+    /// Insert or update a single market, stamping with the current generation.
+    pub fn update_one(&self, mut market: MarketState) {
+        let next_gen = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        market.last_updated_gen = next_gen;
+        self.markets
+            .insert(market.condition_id.clone(), Arc::new(market));
     }
 
-    /// Get a market by condition_id.
-    pub fn get(&self, condition_id: &str) -> Option<MarketState> {
-        self.markets.get(condition_id).map(|r| r.clone())
+    /// Get a market by condition_id (cheap Arc clone).
+    pub fn get(&self, condition_id: &str) -> Option<Arc<MarketState>> {
+        self.markets.get(condition_id).map(|r| Arc::clone(r.value()))
     }
 
-    /// Return all cached markets.
-    pub fn all_markets(&self) -> Vec<MarketState> {
-        self.markets.iter().map(|r| r.value().clone()).collect()
+    /// Return all cached markets (cheap Arc clones).
+    pub fn all_markets(&self) -> Vec<Arc<MarketState>> {
+        self.markets
+            .iter()
+            .map(|r| Arc::clone(r.value()))
+            .collect()
     }
 
-    /// Return only active markets.
-    pub fn active_markets(&self) -> Vec<MarketState> {
+    /// Return only active markets (cheap Arc clones).
+    pub fn active_markets(&self) -> Vec<Arc<MarketState>> {
         self.markets
             .iter()
             .filter(|r| r.value().active)
-            .map(|r| r.value().clone())
+            .map(|r| Arc::clone(r.value()))
+            .collect()
+    }
+
+    /// Return only markets updated since `since_gen` (for change detection).
+    pub fn changed_since(&self, since_gen: u64) -> Vec<Arc<MarketState>> {
+        self.markets
+            .iter()
+            .filter(|r| r.value().last_updated_gen > since_gen)
+            .map(|r| Arc::clone(r.value()))
             .collect()
     }
 
@@ -57,7 +90,7 @@ impl MarketCache {
     }
 
     /// Remove a market by condition_id.
-    pub fn remove(&self, condition_id: &str) -> Option<MarketState> {
+    pub fn remove(&self, condition_id: &str) -> Option<Arc<MarketState>> {
         self.markets.remove(condition_id).map(|(_, v)| v)
     }
 
@@ -90,6 +123,15 @@ mod tests {
             liquidity: Some(Decimal::from(10_000)),
             active,
             neg_risk: false,
+            best_bid: None,
+            best_ask: None,
+            spread: None,
+            last_trade_price: None,
+            description: None,
+            end_date_iso: None,
+            slug: None,
+            one_day_price_change: None,
+            last_updated_gen: 0,
         }
     }
 
@@ -119,5 +161,27 @@ mod tests {
         cache.update(&[make_market("a", true), make_market("b", false), make_market("c", true)]);
         let active = cache.active_markets();
         assert_eq!(active.len(), 2);
+    }
+
+    #[test]
+    fn test_generation_tracking() {
+        let cache = MarketCache::new();
+        assert_eq!(cache.generation(), 0);
+
+        cache.update(&[make_market("a", true)]);
+        let gen1 = cache.generation();
+        assert!(gen1 > 0);
+
+        let fetched = cache.get("a").unwrap();
+        assert_eq!(fetched.last_updated_gen, gen1);
+
+        cache.update_one(make_market("b", true));
+        let gen2 = cache.generation();
+        assert!(gen2 > gen1);
+
+        // Only "b" should appear in changed_since(gen1)
+        let changed = cache.changed_since(gen1);
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].condition_id, "b");
     }
 }

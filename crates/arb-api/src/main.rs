@@ -3,6 +3,7 @@ mod routes;
 mod state;
 mod ws;
 
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
@@ -29,16 +30,21 @@ async fn main() -> anyhow::Result<()> {
     let config = ArbConfig::load();
     let (ws_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
+    // Check if the file-based kill switch is already active at startup
+    let kill_switch_initial = arb_risk::kill_switch::KillSwitch::new().is_active();
+
     let state = state::AppState {
         market_cache: Arc::new(MarketCache::new()),
         risk_limits: Arc::new(Mutex::new(RiskLimits::new(
             config.risk.clone(),
             Decimal::from(10_000),
         ))),
+        kill_switch_active: Arc::new(AtomicBool::new(kill_switch_initial)),
         config: Arc::new(RwLock::new(config)),
         ws_tx,
         opportunities: Arc::new(RwLock::new(Vec::new())),
         execution_history: Arc::new(RwLock::new(Vec::new())),
+        cached_metrics_json: Arc::new(RwLock::new("{}".to_string())),
         start_time: Instant::now(),
     };
 
@@ -54,12 +60,15 @@ async fn main() -> anyhow::Result<()> {
             "/api/config",
             get(routes::config::get_config).put(routes::config::update_config),
         )
+        .route("/api/order", post(routes::order::place_order))
         .route("/api/kill", post(routes::control::kill))
         .route("/api/resume", post(routes::control::resume))
         .route(
             "/api/simulate/{condition_id}",
             post(routes::simulate::run_simulation),
         )
+        .route("/api/sandbox/detect", post(routes::sandbox::detect))
+        .route("/api/sandbox/backtest", post(routes::sandbox::backtest))
         .route("/ws", get(ws::ws_handler))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

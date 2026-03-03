@@ -29,6 +29,19 @@ pub struct MarketState {
     pub liquidity: Option<Decimal>,
     pub active: bool,
     pub neg_risk: bool,
+    pub best_bid: Option<Decimal>,
+    pub best_ask: Option<Decimal>,
+    pub spread: Option<Decimal>,
+    pub last_trade_price: Option<Decimal>,
+    pub description: Option<String>,
+    pub end_date_iso: Option<String>,
+    pub slug: Option<String>,
+    pub one_day_price_change: Option<Decimal>,
+    /// Cache generation when this market was last updated.
+    /// Used for dirty-tracking: detectors only scan markets where
+    /// `last_updated_gen > last_scan_gen`.
+    #[serde(default)]
+    pub last_updated_gen: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -48,7 +61,7 @@ impl std::fmt::Display for ArbType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Side {
     Buy,
     Sell,
@@ -119,6 +132,7 @@ pub struct ExecutionReport {
 pub struct LegReport {
     pub order_id: String,
     pub token_id: String,
+    pub condition_id: String,
     pub side: Side,
     pub expected_vwap: Decimal,
     pub actual_fill_price: Decimal,
@@ -192,4 +206,25 @@ pub enum CorrelationRelationship {
     Exhaustive,
     /// Custom constraint with a bound
     Custom { constraint: String, bound: Decimal },
+}
+
+/// Flat override struct for sandbox/playground requests.
+/// All fields are optional — `None` means "use current live config value".
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SandboxConfigOverrides {
+    // Strategy
+    pub min_edge_bps: Option<u64>,
+    pub intra_market_enabled: Option<bool>,
+    pub cross_market_enabled: Option<bool>,
+    pub multi_outcome_enabled: Option<bool>,
+    pub intra_min_deviation: Option<Decimal>,
+    pub cross_min_implied_edge: Option<Decimal>,
+    pub multi_min_deviation: Option<Decimal>,
+    // Slippage
+    pub max_slippage_bps: Option<u64>,
+    pub vwap_depth_levels: Option<usize>,
+    // Risk
+    pub max_position_per_market: Option<Decimal>,
+    pub max_total_exposure: Option<Decimal>,
+    pub daily_loss_limit: Option<Decimal>,
 }

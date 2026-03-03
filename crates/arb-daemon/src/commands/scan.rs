@@ -32,14 +32,14 @@ pub async fn execute() -> anyhow::Result<()> {
 
     // Fetch orderbooks for all markets
     let cache = MarketCache::new();
-    let mut markets_with_books = Vec::new();
+    let mut markets_with_books: Vec<Arc<MarketState>> = Vec::new();
 
     for market in &markets {
         let mut m = market.clone();
         let books = data_source.fetch_orderbooks(&m.token_ids).await?;
         m.orderbooks = books;
         cache.update_one(m.clone());
-        markets_with_books.push(m);
+        markets_with_books.push(Arc::new(m));
     }
 
     println!("Fetched orderbooks for {} markets\n", markets_with_books.len());
@@ -79,7 +79,7 @@ pub async fn execute() -> anyhow::Result<()> {
     }
 
     // Refine with VWAP
-    let edge_calc = EdgeCalculator::default_with_config(config.slippage.clone());
+    let edge_calc = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
     for opp in &mut all_opportunities {
         let _ = edge_calc.refine_with_vwap(opp, &cache);
     }
@@ -182,7 +182,8 @@ pub async fn execute_comprehensive(
         all_markets
     };
 
-    let classified = classify_markets(&markets);
+    let arc_markets: Vec<Arc<MarketState>> = markets.iter().map(|m| Arc::new(m.clone())).collect();
+    let classified = classify_markets(&arc_markets);
     println!(
         "  {} classified ({} binary, {} neg-risk)",
         classified.binary.len() + classified.neg_risk.len(),
@@ -219,7 +220,7 @@ pub async fn execute_comprehensive(
 
     // Attach orderbooks to markets and populate cache
     let cache = MarketCache::new();
-    let mut enriched_markets = Vec::with_capacity(markets.len());
+    let mut enriched_markets: Vec<Arc<MarketState>> = Vec::with_capacity(markets.len());
 
     for market in &markets {
         let mut m = market.clone();
@@ -230,7 +231,7 @@ pub async fn execute_comprehensive(
             .collect();
         m.orderbooks = books;
         cache.update_one(m.clone());
-        enriched_markets.push(m);
+        enriched_markets.push(Arc::new(m));
     }
 
     // Set up detectors
@@ -251,7 +252,7 @@ pub async fn execute_comprehensive(
             eprintln!("  IntraMarket: {} raw detections", opps.len());
         }
         for opp in opps {
-            let question = find_question(&enriched_markets, &opp);
+            let question = find_question_arc(&enriched_markets, &opp);
             all_opportunities.push((opp, question));
         }
     }
@@ -268,7 +269,7 @@ pub async fn execute_comprehensive(
             eprintln!("  MultiOutcome: {} raw detections", opps.len());
         }
         for opp in opps {
-            let question = find_question(&enriched_markets, &opp);
+            let question = find_question_arc(&enriched_markets, &opp);
             all_opportunities.push((opp, question));
         }
     }
@@ -290,6 +291,7 @@ pub async fn execute_comprehensive(
             .map(|m| {
                 cache
                     .get(&m.condition_id)
+                    .map(|arc| (*arc).clone())
                     .unwrap_or_else(|| m.clone())
             })
             .collect();
@@ -303,13 +305,13 @@ pub async fn execute_comprehensive(
             eprintln!("  Deadline: {} inversions in group starting with '{}'", opps.len(), prefix);
         }
         for opp in opps {
-            let question = find_question(&enriched_markets, &opp);
+            let question = find_question_arc(&enriched_markets, &opp);
             all_opportunities.push((opp, question));
         }
     }
 
     // Refine with VWAP
-    let edge_calc = EdgeCalculator::default_with_config(config.slippage.clone());
+    let edge_calc = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
     for (opp, _) in &mut all_opportunities {
         let _ = edge_calc.refine_with_vwap(opp, &cache);
     }
@@ -446,7 +448,7 @@ pub async fn execute_comprehensive(
 }
 
 /// Find the question text for an opportunity by matching its first market condition_id.
-fn find_question(markets: &[MarketState], opp: &Opportunity) -> String {
+fn find_question_arc(markets: &[Arc<MarketState>], opp: &Opportunity) -> String {
     opp.markets
         .first()
         .and_then(|cid| markets.iter().find(|m| m.condition_id == *cid))
@@ -537,7 +539,7 @@ fn compute_vwap_edge_tiers(
 
 /// Compute aggregate market structure summary by category (binary vs neg-risk).
 fn compute_market_summary(
-    markets: &[MarketState],
+    markets: &[Arc<MarketState>],
     orderbook_map: &HashMap<String, arb_core::OrderbookSnapshot>,
     processor: &OrderbookProcessor,
 ) -> Vec<crate::export::MarketSummaryRow> {
@@ -546,11 +548,11 @@ fn compute_market_summary(
     let mut rows = Vec::new();
 
     for (category, filter_fn) in [
-        ("binary", (|m: &&MarketState| !m.neg_risk && m.token_ids.len() == 2) as fn(&&MarketState) -> bool),
-        ("neg_risk", (|m: &&MarketState| m.neg_risk) as fn(&&MarketState) -> bool),
-        ("all", (|_: &&MarketState| true) as fn(&&MarketState) -> bool),
+        ("binary", (|m: &&Arc<MarketState>| !m.neg_risk && m.token_ids.len() == 2) as fn(&&Arc<MarketState>) -> bool),
+        ("neg_risk", (|m: &&Arc<MarketState>| m.neg_risk) as fn(&&Arc<MarketState>) -> bool),
+        ("all", (|_: &&Arc<MarketState>| true) as fn(&&Arc<MarketState>) -> bool),
     ] {
-        let subset: Vec<&MarketState> = markets.iter().filter(filter_fn).collect();
+        let subset: Vec<&Arc<MarketState>> = markets.iter().filter(filter_fn).collect();
         if subset.is_empty() {
             continue;
         }

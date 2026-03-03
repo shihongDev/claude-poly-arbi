@@ -21,6 +21,14 @@ export interface MarketState {
   liquidity: string | null;
   active: boolean;
   neg_risk: boolean;
+  best_bid: string | null;
+  best_ask: string | null;
+  spread: string | null;
+  last_trade_price: string | null;
+  description: string | null;
+  end_date_iso: string | null;
+  slug: string | null;
+  one_day_price_change: string | null;
 }
 
 export type ArbType = "IntraMarket" | "CrossMarket" | "MultiOutcome";
@@ -56,6 +64,7 @@ export interface Opportunity {
 export interface LegReport {
   order_id: string;
   token_id: string;
+  condition_id: string;
   side: Side;
   expected_vwap: string;
   actual_fill_price: string;
@@ -105,6 +114,7 @@ export interface StatusResponse {
 
 export type WsEventType =
   | "opportunity_detected"
+  | "opportunities_batch"
   | "trade_executed"
   | "position_update"
   | "metrics_update"
@@ -117,4 +127,70 @@ export type WsEventType =
 export interface WsEvent {
   type: WsEventType;
   data: unknown;
+}
+
+// ── Sandbox / Playground types ──────────────────────────────
+
+export interface SandboxConfigOverrides {
+  min_edge_bps?: number;
+  intra_market_enabled?: boolean;
+  cross_market_enabled?: boolean;
+  multi_outcome_enabled?: boolean;
+  intra_min_deviation?: string;
+  cross_min_implied_edge?: string;
+  multi_min_deviation?: string;
+  max_slippage_bps?: number;
+  vwap_depth_levels?: number;
+  max_position_per_market?: string;
+  max_total_exposure?: string;
+  daily_loss_limit?: string;
+}
+
+export interface DetectResponse {
+  opportunities: Opportunity[];
+  detection_time_ms: number;
+  markets_scanned: number;
+  config_used: {
+    min_edge_bps: number;
+    intra_market_enabled: boolean;
+    cross_market_enabled: boolean;
+    multi_outcome_enabled: boolean;
+  };
+}
+
+export interface BacktestTrade {
+  opportunity_id: string;
+  realized_edge: string;
+  total_fees: string;
+  net_pnl: string;
+  timestamp: string;
+  included: boolean;
+  rejection_reason: string | null;
+}
+
+export interface BacktestDailyBreakdown {
+  date: string;
+  pnl: string;
+  trade_count: number;
+}
+
+export interface BacktestResponse {
+  total_trades_original: number;
+  total_trades_filtered: number;
+  trades_rejected: number;
+  aggregate_pnl: string;
+  aggregate_pnl_original: string;
+  daily_breakdown: BacktestDailyBreakdown[];
+  trades: BacktestTrade[];
+}
+
+export interface SimulateParams {
+  num_paths?: number;
+  volatility?: number;
+  drift?: number;
+  time_horizon?: number;
+  strike?: number;
+  particle_count?: number;
+  process_noise?: number;
+  observation_noise?: number;
 }

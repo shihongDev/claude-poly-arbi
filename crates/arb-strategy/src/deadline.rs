@@ -52,6 +52,9 @@ impl DeadlineMonotonicityDetector {
             // Inversion: later deadline priced cheaper than earlier
             if later_yes < earlier_yes {
                 let gross_edge = earlier_yes - later_yes;
+                // Use a conservative default size — EdgeCalculator will refine
+                // with actual orderbook depth when available
+                let default_size = Decimal::from(100);
 
                 opps.push(Opportunity {
                     id: Uuid::new_v4(),
@@ -65,22 +68,22 @@ impl DeadlineMonotonicityDetector {
                             token_id: later.token_ids.first().cloned().unwrap_or_default(),
                             side: Side::Buy,
                             target_price: later_yes,
-                            target_size: Decimal::ZERO,
-                            vwap_estimate: Decimal::ZERO,
+                            target_size: default_size,
+                            vwap_estimate: later_yes,
                         },
                         TradeLeg {
                             token_id: earlier.token_ids.first().cloned().unwrap_or_default(),
                             side: Side::Sell,
                             target_price: earlier_yes,
-                            target_size: Decimal::ZERO,
-                            vwap_estimate: Decimal::ZERO,
+                            target_size: default_size,
+                            vwap_estimate: earlier_yes,
                         },
                     ],
                     gross_edge,
                     net_edge: Decimal::ZERO, // refined later by EdgeCalculator
-                    estimated_vwap: vec![],
+                    estimated_vwap: vec![later_yes, earlier_yes],
                     confidence: 0.5,
-                    size_available: Decimal::ZERO,
+                    size_available: default_size,
                     detected_at: Utc::now(),
                 });
             }
@@ -118,6 +121,15 @@ mod tests {
             liquidity: None,
             active: true,
             neg_risk: false,
+            best_bid: None,
+            best_ask: None,
+            spread: None,
+            last_trade_price: None,
+            description: None,
+            end_date_iso: None,
+            slug: None,
+            one_day_price_change: None,
+            last_updated_gen: 0,
         }
     }
 

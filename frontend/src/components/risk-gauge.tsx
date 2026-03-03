@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 
 interface RiskGaugeProps {
@@ -10,69 +11,70 @@ interface RiskGaugeProps {
   criticalThreshold?: number;
 }
 
-export function RiskGauge({
+export const RiskGauge = memo(function RiskGauge({
   value,
   max,
   label,
   warningThreshold = 0.6,
   criticalThreshold = 0.8,
 }: RiskGaugeProps) {
-  const pct = max > 0 ? value / max : 0;
+  const option = useMemo(() => {
+    const pct = max > 0 ? value / max : 0;
+    const color =
+      pct >= criticalThreshold
+        ? "#B44C3F"
+        : pct >= warningThreshold
+          ? "#D97706"
+          : "#2D6A4F";
 
-  const getColor = () => {
-    if (pct >= criticalThreshold) return "#ef4444"; // red-500
-    if (pct >= warningThreshold) return "#f59e0b"; // amber-500
-    return "#10b981"; // emerald-500
-  };
-
-  const option = {
-    backgroundColor: "transparent",
-    series: [
-      {
-        type: "gauge" as const,
-        startAngle: 200,
-        endAngle: -20,
-        min: 0,
-        max,
-        radius: "90%",
-        progress: {
-          show: true,
-          width: 12,
-          roundCap: true,
-          itemStyle: {
-            color: getColor(),
-          },
-        },
-        pointer: { show: false },
-        axisLine: {
-          lineStyle: {
+    return {
+      backgroundColor: "transparent",
+      series: [
+        {
+          type: "gauge" as const,
+          startAngle: 200,
+          endAngle: -20,
+          min: 0,
+          max,
+          radius: "90%",
+          progress: {
+            show: true,
             width: 12,
-            color: [[1, "#27272a"]], // zinc-800
+            roundCap: true,
+            itemStyle: { color },
           },
-          roundCap: true,
+          pointer: { show: false },
+          axisLine: {
+            lineStyle: {
+              width: 12,
+              color: [[1, "#E6E4DF"]],
+            },
+            roundCap: true,
+          },
+          axisTick: { show: false },
+          splitLine: { show: false },
+          axisLabel: { show: false },
+          title: {
+            show: true,
+            offsetCenter: [0, "70%"],
+            fontSize: 12,
+            color: "#6B6B6B",
+            fontFamily: "Space Grotesk, sans-serif",
+          },
+          detail: {
+            offsetCenter: [0, "20%"],
+            fontSize: 24,
+            fontWeight: "bold" as const,
+            fontFamily:
+              "var(--font-jetbrains-mono), JetBrains Mono, monospace",
+            color: "#1A1A19",
+            formatter: (v: number) => v.toFixed(1),
+          },
+          data: [{ value, name: label }],
         },
-        axisTick: { show: false },
-        splitLine: { show: false },
-        axisLabel: { show: false },
-        title: {
-          show: true,
-          offsetCenter: [0, "70%"],
-          fontSize: 12,
-          color: "#a1a1aa", // zinc-400
-          fontFamily: "Inter, sans-serif",
-        },
-        detail: {
-          offsetCenter: [0, "20%"],
-          fontSize: 24,
-          fontWeight: "bold" as const,
-          fontFamily: "var(--font-mono), JetBrains Mono, monospace",
-          color: "#fafafa",
-          formatter: (v: number) => v.toFixed(1),
-        },
-        data: [{ value, name: label }],
-      },
-    ],
-  };
+      ],
+    };
+  }, [value, max, label, warningThreshold, criticalThreshold]);
 
   return (
     <ReactECharts
@@ -81,4 +83,4 @@ export function RiskGauge({
       opts={{ renderer: "canvas" }}
     />
   );
-}
+});

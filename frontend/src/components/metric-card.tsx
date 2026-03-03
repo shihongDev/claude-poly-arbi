@@ -1,4 +1,3 @@
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ArrowUp, ArrowDown, Minus } from "lucide-react";
 
@@ -16,30 +15,28 @@ const deltaIcons = {
 };
 
 const deltaColors = {
-  positive: "text-emerald-500",
-  negative: "text-red-500",
-  neutral: "text-zinc-400",
+  positive: "text-[#2D6A4F]",
+  negative: "text-[#B44C3F]",
+  neutral: "text-[#9B9B9B]",
 };
 
 export function MetricCard({ title, value, delta, deltaType }: MetricCardProps) {
   const DeltaIcon = deltaType ? deltaIcons[deltaType] : null;
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900 py-5">
-      <CardContent className="px-5 py-0">
-        <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-          {title}
-        </p>
-        <p className="mt-2 text-2xl font-bold text-white" style={{ fontFamily: "var(--font-mono)" }}>
-          {value}
-        </p>
-        {delta && deltaType && DeltaIcon && (
-          <div className={cn("mt-1 flex items-center gap-1 text-sm", deltaColors[deltaType])}>
-            <DeltaIcon className="h-3 w-3" />
-            <span style={{ fontFamily: "var(--font-mono)" }}>{delta}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="py-5 px-5">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
+        {title}
+      </p>
+      <p className="mt-2 text-4xl font-bold text-[#1A1A19]" style={{ fontFamily: "var(--font-space-grotesk)" }}>
+        {value}
+      </p>
+      {delta && deltaType && DeltaIcon && (
+        <div className={cn("mt-1 flex items-center gap-1 text-sm", deltaColors[deltaType])}>
+          <DeltaIcon className="h-3 w-3" />
+          <span style={{ fontFamily: "var(--font-jetbrains-mono)" }}>{delta}</span>
+        </div>
+      )}
+    </div>
   );
 }

@@ -11,6 +11,7 @@ use arb_core::{
 use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use tracing::{debug, info, warn};
 
 /// Polling tier based on 24hr volume.
@@ -39,8 +40,7 @@ impl MarketPoller {
         let vol = market
             .volume_24hr
             .unwrap_or(Decimal::ZERO)
-            .to_string()
-            .parse::<u64>()
+            .to_u64()
             .unwrap_or(0);
 
         if vol >= self.config.hot_volume_threshold {
@@ -70,7 +70,7 @@ impl MarketPoller {
             .insert(condition_id.to_string(), Instant::now());
     }
 
-    pub fn filter_due(&self, markets: &[MarketState]) -> Vec<MarketState> {
+    pub fn filter_due(&self, markets: &[Arc<MarketState>]) -> Vec<Arc<MarketState>> {
         markets
             .iter()
             .filter(|m| {
@@ -79,6 +79,12 @@ impl MarketPoller {
             })
             .cloned()
             .collect()
+    }
+
+    /// Remove `last_poll` entries for markets no longer in the active set.
+    /// Call periodically to prevent unbounded HashMap growth from dead markets.
+    pub fn cleanup_stale(&mut self, active_ids: &std::collections::HashSet<String>) {
+        self.last_poll.retain(|cid, _| active_ids.contains(cid));
     }
 }
 
@@ -104,7 +110,7 @@ pub struct ClassifiedMarkets {
 /// Markets that don't match either category (e.g., non-neg-risk with 3+ tokens)
 /// are silently dropped. All token IDs from classified markets are collected
 /// into `all_token_ids` (deduplicated, deterministic order).
-pub fn classify_markets(markets: &[MarketState]) -> ClassifiedMarkets {
+pub fn classify_markets(markets: &[Arc<MarketState>]) -> ClassifiedMarkets {
     let mut binary = Vec::new();
     let mut neg_risk = Vec::new();
     let mut seen_tokens = HashMap::new();
@@ -112,10 +118,10 @@ pub fn classify_markets(markets: &[MarketState]) -> ClassifiedMarkets {
 
     for market in markets {
         let classified = if market.neg_risk {
-            neg_risk.push(market.clone());
+            neg_risk.push((**market).clone());
             true
         } else if market.token_ids.len() == 2 {
-            binary.push(market.clone());
+            binary.push((**market).clone());
             true
         } else {
             false
@@ -160,16 +166,17 @@ impl Default for ConcurrentFetchConfig {
     }
 }
 
-/// Fetch a single orderbook from the CLOB API.
+/// Fetch a single orderbook from the CLOB API using a shared client.
 ///
 /// This is a standalone function (not a method) so it can be called from
 /// spawned tokio tasks without requiring a reference to `SdkMarketDataSource`.
-/// The CLOB client is cheap to construct, so we create one per call.
-async fn fetch_single_orderbook(token_id: &str) -> Result<OrderbookSnapshot> {
+/// The client is shared via Arc to reuse the underlying HTTP connection pool.
+async fn fetch_single_orderbook(
+    client: &polymarket_client_sdk::clob::Client,
+    token_id: &str,
+) -> Result<OrderbookSnapshot> {
     use polymarket_client_sdk::clob::types::request::OrderBookSummaryRequest;
     use polymarket_client_sdk::types::U256;
-
-    let client = polymarket_client_sdk::clob::Client::default();
 
     let token_u256: U256 = token_id
         .parse()
@@ -214,14 +221,19 @@ async fn fetch_single_orderbook(token_id: &str) -> Result<OrderbookSnapshot> {
 }
 
 /// Live market data source using the Polymarket SDK.
+///
+/// Holds shared CLOB and Gamma clients to reuse HTTP connection pools
+/// across all fetch operations, avoiding per-request TCP/TLS handshakes.
 pub struct SdkMarketDataSource {
     gamma_client: polymarket_client_sdk::gamma::Client,
+    clob_client: Arc<polymarket_client_sdk::clob::Client>,
 }
 
 impl SdkMarketDataSource {
     pub fn new() -> Self {
         Self {
             gamma_client: polymarket_client_sdk::gamma::Client::default(),
+            clob_client: Arc::new(polymarket_client_sdk::clob::Client::default()),
         }
     }
 
@@ -263,6 +275,15 @@ impl SdkMarketDataSource {
             liquidity: market.liquidity_num,
             active: market.active.unwrap_or(false),
             neg_risk: market.neg_risk.unwrap_or(false),
+            best_bid: market.best_bid,
+            best_ask: market.best_ask,
+            spread: market.spread,
+            last_trade_price: market.last_trade_price,
+            description: market.description.clone(),
+            end_date_iso: market.end_date_iso.map(|d| d.to_string()),
+            slug: market.slug.clone(),
+            one_day_price_change: market.one_day_price_change,
+            last_updated_gen: 0,
         })
     }
 
@@ -355,12 +376,13 @@ impl SdkMarketDataSource {
 
         for token_id in token_ids {
             let sem = Arc::clone(&semaphore);
+            let clob = Arc::clone(&self.clob_client);
             let tid = token_id.clone();
             let td = timeout_duration;
 
             let handle = tokio::spawn(async move {
                 let _permit = sem.acquire().await.expect("semaphore closed unexpectedly");
-                let result = timeout(td, fetch_single_orderbook(&tid)).await;
+                let result = timeout(td, fetch_single_orderbook(&clob, &tid)).await;
                 (tid, result)
             });
 
@@ -437,7 +459,7 @@ impl MarketDataSource for SdkMarketDataSource {
     }
 
     async fn fetch_orderbook(&self, token_id: &str) -> Result<OrderbookSnapshot> {
-        fetch_single_orderbook(token_id).await
+        fetch_single_orderbook(&self.clob_client, token_id).await
     }
 
     async fn fetch_orderbooks(&self, token_ids: &[String]) -> Result<Vec<OrderbookSnapshot>> {
@@ -476,7 +498,20 @@ mod tests {
             liquidity: Some(dec!(5000)),
             active,
             neg_risk,
+            best_bid: None,
+            best_ask: None,
+            spread: None,
+            last_trade_price: None,
+            description: None,
+            end_date_iso: None,
+            slug: None,
+            one_day_price_change: None,
+            last_updated_gen: 0,
         }
+    }
+
+    fn arc_markets(markets: Vec<MarketState>) -> Vec<Arc<MarketState>> {
+        markets.into_iter().map(Arc::new).collect()
     }
 
     #[test]
@@ -489,10 +524,10 @@ mod tests {
 
     #[test]
     fn classify_binary_markets() {
-        let markets = vec![
+        let markets = arc_markets(vec![
             make_market("cond_a", vec!["tok_a1", "tok_a2"], false, true),
             make_market("cond_b", vec!["tok_b1", "tok_b2"], false, true),
-        ];
+        ]);
 
         let result = classify_markets(&markets);
         assert_eq!(result.binary.len(), 2);
@@ -502,10 +537,10 @@ mod tests {
 
     #[test]
     fn classify_neg_risk_markets() {
-        let markets = vec![
+        let markets = arc_markets(vec![
             make_market("cond_c", vec!["tok_c1", "tok_c2", "tok_c3"], true, true),
             make_market("cond_d", vec!["tok_d1", "tok_d2"], true, true),
-        ];
+        ]);
 
         let result = classify_markets(&markets);
         assert!(result.binary.is_empty());
@@ -515,7 +550,7 @@ mod tests {
 
     #[test]
     fn classify_mixed_markets() {
-        let markets = vec![
+        let markets = arc_markets(vec![
             // Binary: 2 tokens, not neg_risk
             make_market("cond_bin", vec!["tok_1", "tok_2"], false, true),
             // Neg-risk: neg_risk=true
@@ -524,7 +559,7 @@ mod tests {
             make_market("cond_drop", vec!["tok_6", "tok_7", "tok_8"], false, true),
             // Neg-risk with 2 tokens (neg_risk takes precedence)
             make_market("cond_neg2", vec!["tok_9", "tok_10"], true, true),
-        ];
+        ]);
 
         let result = classify_markets(&markets);
         assert_eq!(result.binary.len(), 1);
@@ -539,10 +574,10 @@ mod tests {
     #[test]
     fn classify_deduplicates_token_ids() {
         // Same token IDs appearing in multiple markets
-        let markets = vec![
+        let markets = arc_markets(vec![
             make_market("cond_a", vec!["shared_tok", "tok_a2"], false, true),
             make_market("cond_b", vec!["shared_tok", "tok_b2"], false, true),
-        ];
+        ]);
 
         let result = classify_markets(&markets);
         assert_eq!(result.binary.len(), 2);
@@ -560,10 +595,10 @@ mod tests {
 
     #[test]
     fn classify_preserves_insertion_order() {
-        let markets = vec![
+        let markets = arc_markets(vec![
             make_market("cond_a", vec!["tok_z", "tok_y"], false, true),
             make_market("cond_b", vec!["tok_x", "tok_w"], false, true),
-        ];
+        ]);
 
         let result = classify_markets(&markets);
         assert_eq!(

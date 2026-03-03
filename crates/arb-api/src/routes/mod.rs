@@ -4,6 +4,8 @@ pub mod history;
 pub mod markets;
 pub mod metrics;
 pub mod opportunities;
+pub mod order;
 pub mod positions;
+pub mod sandbox;
 pub mod simulate;
 pub mod status;

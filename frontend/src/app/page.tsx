@@ -1,331 +1,478 @@
 "use client";
 
-import { useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Search,
+  ArrowUpRight,
+  ArrowDownRight,
+  BarChart3,
+  Activity,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 import { useDashboardStore } from "@/store";
-import { MetricCard } from "@/components/metric-card";
-import { PnlChart } from "@/components/pnl-chart";
-import { RiskGauge } from "@/components/risk-gauge";
-import { OpportunityRow } from "@/components/opportunity-row";
+import { DataTable, type Column } from "@/components/data-table";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   formatUsd,
-  formatPnl,
-  formatPercent,
-  formatDecimal,
+  formatSpreadBps,
+  formatPriceChange,
+  formatEndDate,
   cn,
 } from "@/lib/utils";
-import type { Position } from "@/lib/types";
+import type { MarketState } from "@/lib/types";
 
-const MAX_TOTAL_EXPOSURE = 5000;
+function truncateQuestion(question: string, max = 55): string {
+  if (question.length <= max) return question;
+  return question.slice(0, max) + "\u2026";
+}
 
-export default function DashboardPage() {
-  const metrics = useDashboardStore((s) => s.metrics);
-  const opportunities = useDashboardStore((s) => s.opportunities);
-  const positions = useDashboardStore((s) => s.positions);
-  const history = useDashboardStore((s) => s.history);
+type SortField = "volume" | "liquidity" | "spread" | "change";
 
-  // Build equity curve from execution history
-  const equityCurve = useMemo(() => {
-    if (!history || history.length === 0) return [];
+const MIN_VOLUME_OPTIONS = [
+  { value: "0", label: "Any" },
+  { value: "1000", label: "$1K+" },
+  { value: "10000", label: "$10K+" },
+  { value: "100000", label: "$100K+" },
+  { value: "1000000", label: "$1M+" },
+];
 
-    // Sort by timestamp ascending
-    const sorted = [...history].sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+const SORT_OPTIONS: { value: SortField; label: string }[] = [
+  { value: "volume", label: "Volume" },
+  { value: "liquidity", label: "Liquidity" },
+  { value: "spread", label: "Spread" },
+  { value: "change", label: "24h Change" },
+];
 
-    let cumulative = 0;
-    return sorted.map((report) => {
-      cumulative += parseFloat(report.realized_edge) - parseFloat(report.total_fees);
-      return {
-        time: report.timestamp.slice(0, 10), // YYYY-MM-DD for lightweight-charts
-        value: cumulative,
-      };
-    });
-  }, [history]);
+interface EnrichedMarket extends MarketState {
+  oppCount: number;
+  positionSize: number;
+}
 
-  // Recent opportunities (last 10)
-  const recentOpportunities = useMemo(
-    () => opportunities.slice(0, 10),
-    [opportunities]
-  );
-
-  // Top 5 positions by absolute unrealized P&L
-  const topPositions = useMemo(() => {
-    if (!positions || positions.length === 0) return [];
-    return [...positions]
-      .sort(
-        (a, b) =>
-          Math.abs(parseFloat(b.unrealized_pnl)) -
-          Math.abs(parseFloat(a.unrealized_pnl))
-      )
-      .slice(0, 5);
-  }, [positions]);
-
-  // Derived values
-  const currentExposure = metrics
-    ? parseFloat(metrics.current_exposure)
-    : 0;
-  const drawdownPct = metrics ? metrics.drawdown_pct : 0;
-  const brierScore = metrics ? metrics.brier_score : null;
-
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Real-time arbitrage monitoring and execution overview
+    <div className="rounded-[10px] border border-[#E6E4DF] bg-[#F8F7F4] px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Icon className="h-3.5 w-3.5 text-[#9B9B9B]" />
+        <p className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
+          {label}
         </p>
       </div>
-
-      {/* Row 1: 5 KPI MetricCards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <MetricCard
-          title="Total P&L"
-          value={metrics ? formatPnl(metrics.total_pnl) : "\u2014"}
-          delta={
-            metrics ? formatPnl(metrics.daily_pnl) + " today" : undefined
-          }
-          deltaType={
-            metrics
-              ? parseFloat(metrics.total_pnl) >= 0
-                ? "positive"
-                : "negative"
-              : undefined
-          }
-        />
-        <MetricCard
-          title="Daily P&L"
-          value={metrics ? formatPnl(metrics.daily_pnl) : "\u2014"}
-          deltaType={
-            metrics
-              ? parseFloat(metrics.daily_pnl) >= 0
-                ? "positive"
-                : "negative"
-              : undefined
-          }
-        />
-        <MetricCard
-          title="Open Positions"
-          value={positions.length.toLocaleString()}
-        />
-        <MetricCard
-          title="Active Opportunities"
-          value={opportunities.length.toLocaleString()}
-        />
-        <MetricCard
-          title="Brier Score"
-          value={brierScore !== null ? formatDecimal(String(brierScore), 4) : "\u2014"}
-          delta={brierScore !== null ? "0.2500 random baseline" : undefined}
-          deltaType={
-            brierScore !== null
-              ? brierScore < 0.25
-                ? "positive"
-                : "negative"
-              : undefined
-          }
-        />
-      </div>
-
-      {/* Row 2: Chart + Risk Gauges */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left: P&L Chart (2/3 width) */}
-        <div className="lg:col-span-2 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
-            Equity Curve
-          </h2>
-          <div className="mt-4 h-[280px]">
-            {equityCurve.length > 0 ? (
-              <PnlChart data={equityCurve} />
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-zinc-600">
-                No trade history yet
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Risk Gauges (1/3 width) */}
-        <div className="flex flex-col gap-6">
-          <div className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
-              Exposure
-            </h2>
-            <div className="mt-2 h-[120px]">
-              <RiskGauge
-                value={currentExposure}
-                max={MAX_TOTAL_EXPOSURE}
-                label="Exposure ($)"
-                warningThreshold={0.6}
-                criticalThreshold={0.8}
-              />
-            </div>
-            <p
-              className="mt-1 text-center text-xs text-zinc-500"
-              style={{ fontFamily: "var(--font-mono)" }}
-            >
-              {formatUsd(String(currentExposure))} / {formatUsd(String(MAX_TOTAL_EXPOSURE))}
-            </p>
-          </div>
-          <div className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
-              Drawdown
-            </h2>
-            <div className="mt-2 h-[120px]">
-              <RiskGauge
-                value={drawdownPct}
-                max={100}
-                label="Drawdown (%)"
-                warningThreshold={0.05}
-                criticalThreshold={0.1}
-              />
-            </div>
-            <p
-              className="mt-1 text-center text-xs text-zinc-500"
-              style={{ fontFamily: "var(--font-mono)" }}
-            >
-              {formatPercent(drawdownPct)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Row 3: Recent Opportunities + Top Positions */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Left: Recent Opportunities */}
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900">
-          <div className="border-b border-zinc-800 px-5 py-4">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
-              Recent Opportunities
-            </h2>
-          </div>
-          {recentOpportunities.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-800">
-                    <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Type
-                    </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Markets
-                    </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Net Edge
-                    </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Confidence
-                    </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Size
-                    </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Time
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentOpportunities.map((opp) => (
-                    <OpportunityRow key={opp.id} opportunity={opp} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="flex h-[240px] items-center justify-center text-sm text-zinc-600">
-              No opportunities detected yet
-            </div>
-          )}
-        </div>
-
-        {/* Right: Top Positions */}
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900">
-          <div className="border-b border-zinc-800 px-5 py-4">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
-              Top Positions
-            </h2>
-          </div>
-          {topPositions.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-800">
-                    <th className="px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Token
-                    </th>
-                    <th className="px-4 py-2.5 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Size
-                    </th>
-                    <th className="px-4 py-2.5 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Entry
-                    </th>
-                    <th className="px-4 py-2.5 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Current
-                    </th>
-                    <th className="px-4 py-2.5 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Unrealized P&L
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topPositions.map((pos) => (
-                    <PositionRow key={pos.token_id} position={pos} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="flex h-[240px] items-center justify-center text-sm text-zinc-600">
-              No open positions
-            </div>
-          )}
-        </div>
-      </div>
+      <p
+        className="mt-1 text-lg font-semibold text-[#1A1A19]"
+        style={{ fontFamily: "var(--font-jetbrains-mono)" }}
+      >
+        {value}
+      </p>
     </div>
   );
 }
 
-function PositionRow({ position }: { position: Position }) {
-  const pnl = parseFloat(position.unrealized_pnl);
-  const isPositive = pnl >= 0;
+const MARKET_COLUMNS: Column<EnrichedMarket>[] = [
+  {
+    key: "question",
+    header: "Question",
+    sortable: false,
+    render: (row) => (
+      <div className="flex items-center gap-2">
+        {row.oppCount > 0 && (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#2D6A4F]" />
+        )}
+        <span className="text-[#1A1A19]" title={row.question}>
+          {truncateQuestion(row.question)}
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: "price",
+    header: "Price",
+    sortable: true,
+    mono: true,
+    render: (row) => {
+      const price = row.outcome_prices[0]
+        ? parseFloat(row.outcome_prices[0])
+        : null;
+      if (price === null) return <span className="text-[#9B9B9B]">&mdash;</span>;
+      return (
+        <span className="text-[#1A1A19]">
+          {(price * 100).toFixed(0)}&cent;
+        </span>
+      );
+    },
+    getValue: (row) =>
+      row.outcome_prices[0] ? parseFloat(row.outcome_prices[0]) : 0,
+  },
+  {
+    key: "change",
+    header: "24h",
+    sortable: true,
+    mono: true,
+    render: (row) => {
+      const { text, positive } = formatPriceChange(row.one_day_price_change);
+      if (positive === null)
+        return <span className="text-[#9B9B9B]">{text}</span>;
+      return (
+        <span
+          className={cn(
+            "inline-flex items-center gap-0.5",
+            positive ? "text-[#2D6A4F]" : "text-[#B44C3F]"
+          )}
+        >
+          {positive ? (
+            <ArrowUpRight className="h-3 w-3" />
+          ) : (
+            <ArrowDownRight className="h-3 w-3" />
+          )}
+          {text}
+        </span>
+      );
+    },
+    getValue: (row) =>
+      row.one_day_price_change ? parseFloat(row.one_day_price_change) : 0,
+  },
+  {
+    key: "spread",
+    header: "Spread",
+    sortable: true,
+    mono: true,
+    render: (row) => {
+      const spreadStr = formatSpreadBps(row.spread);
+      if (!row.spread)
+        return <span className="text-[#9B9B9B]">{spreadStr}</span>;
+      const bps = parseFloat(row.spread) * 10000;
+      const color =
+        bps < 30
+          ? "text-[#2D6A4F]"
+          : bps < 100
+            ? "text-[#B8860B]"
+            : "text-[#B44C3F]";
+      return <span className={color}>{spreadStr}</span>;
+    },
+    getValue: (row) => (row.spread ? parseFloat(row.spread) : 999),
+  },
+  {
+    key: "volume_24hr",
+    header: "Volume 24h",
+    sortable: true,
+    mono: true,
+    render: (row) => (
+      <span className="text-[#1A1A19]">{formatUsd(row.volume_24hr)}</span>
+    ),
+    getValue: (row) =>
+      row.volume_24hr ? parseFloat(row.volume_24hr) : 0,
+  },
+  {
+    key: "liquidity",
+    header: "Liquidity",
+    sortable: true,
+    mono: true,
+    render: (row) => (
+      <span className="text-[#1A1A19]">{formatUsd(row.liquidity)}</span>
+    ),
+    getValue: (row) =>
+      row.liquidity ? parseFloat(row.liquidity) : 0,
+  },
+  {
+    key: "end_date",
+    header: "End Date",
+    sortable: true,
+    render: (row) => (
+      <span className="text-[#6B6B6B] text-xs">
+        {formatEndDate(row.end_date_iso)}
+      </span>
+    ),
+    getValue: (row) =>
+      row.end_date_iso ? new Date(row.end_date_iso).getTime() : 0,
+  },
+  {
+    key: "book",
+    header: "Book",
+    sortable: false,
+    render: (row) =>
+      row.orderbooks.length > 0 ? (
+        <Badge className="bg-[#DAE9E0] text-[#2D6A4F] text-[10px]">Yes</Badge>
+      ) : (
+        <Badge className="bg-[#F0EEEA] text-[#9B9B9B] text-[10px]">No</Badge>
+      ),
+  },
+];
+
+export default function MarketsPage() {
+  const markets = useDashboardStore((s) => s.markets);
+  const opportunities = useDashboardStore((s) => s.opportunities);
+  const positions = useDashboardStore((s) => s.positions);
+  const router = useRouter();
+
+  const [search, setSearch] = useState("");
+  const [activeOnly, setActiveOnly] = useState(true);
+  const [hasOrderbooks, setHasOrderbooks] = useState(false);
+  const [minVolume, setMinVolume] = useState("0");
+  const [sortBy, setSortBy] = useState<SortField>("volume");
+
+  // Cross-reference maps
+  const oppsByMarket = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const opp of opportunities) {
+      for (const condId of opp.markets) {
+        map.set(condId, (map.get(condId) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [opportunities]);
+
+  const positionsByMarket = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const pos of positions) {
+      const size = parseFloat(pos.size) || 0;
+      map.set(pos.condition_id, (map.get(pos.condition_id) ?? 0) + size);
+    }
+    return map;
+  }, [positions]);
+
+  // Enrich markets
+  const enrichedMarkets = useMemo(
+    () =>
+      markets.map(
+        (m): EnrichedMarket => ({
+          ...m,
+          oppCount: oppsByMarket.get(m.condition_id) ?? 0,
+          positionSize: positionsByMarket.get(m.condition_id) ?? 0,
+        })
+      ),
+    [markets, oppsByMarket, positionsByMarket]
+  );
+
+  // Filter & sort
+  const filteredMarkets = useMemo(() => {
+    let result = enrichedMarkets;
+
+    if (activeOnly) {
+      result = result.filter((m) => m.active);
+    }
+
+    if (hasOrderbooks) {
+      result = result.filter((m) => m.orderbooks.length > 0);
+    }
+
+    const minVol = parseFloat(minVolume);
+    if (minVol > 0) {
+      result = result.filter(
+        (m) => m.volume_24hr && parseFloat(m.volume_24hr) >= minVol
+      );
+    }
+
+    if (search.trim()) {
+      const query = search.trim().toLowerCase();
+      result = result.filter((m) =>
+        m.question.toLowerCase().includes(query)
+      );
+    }
+
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case "volume":
+          return (
+            parseFloat(b.volume_24hr ?? "0") -
+            parseFloat(a.volume_24hr ?? "0")
+          );
+        case "liquidity":
+          return (
+            parseFloat(b.liquidity ?? "0") - parseFloat(a.liquidity ?? "0")
+          );
+        case "spread": {
+          const aSpread = a.spread ? parseFloat(a.spread) : 999;
+          const bSpread = b.spread ? parseFloat(b.spread) : 999;
+          return aSpread - bSpread;
+        }
+        case "change":
+          return (
+            Math.abs(parseFloat(b.one_day_price_change ?? "0")) -
+            Math.abs(parseFloat(a.one_day_price_change ?? "0"))
+          );
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [enrichedMarkets, search, activeOnly, hasOrderbooks, minVolume, sortBy]);
+
+  // Summary stats
+  const stats = useMemo(() => {
+    const active = enrichedMarkets.filter((m) => m.active);
+    const withBooks = active.filter((m) => m.orderbooks.length > 0);
+    const spreads = active
+      .filter((m) => m.spread)
+      .map((m) => parseFloat(m.spread!));
+    const avgSpread =
+      spreads.length > 0
+        ? spreads.reduce((a, b) => a + b, 0) / spreads.length
+        : null;
+    const tightSpread = spreads.filter((s) => s < 0.005).length;
+
+    return {
+      total: active.length,
+      withBooks: withBooks.length,
+      avgSpread,
+      tightSpread,
+    };
+  }, [enrichedMarkets]);
+
+  const handleRowClick = useCallback(
+    (market: EnrichedMarket) => {
+      router.push(`/markets/${market.condition_id}`);
+    },
+    [router]
+  );
 
   return (
-    <tr className="border-b border-zinc-800 bg-zinc-950 transition-colors hover:bg-zinc-800/50">
-      <td className="px-4 py-3">
-        <span
-          className="text-xs text-zinc-400"
-          style={{ fontFamily: "var(--font-mono)" }}
-        >
-          {position.token_id.slice(0, 10)}...
-        </span>
-      </td>
-      <td
-        className="px-4 py-3 text-right text-zinc-300"
-        style={{ fontFamily: "var(--font-mono)" }}
-      >
-        {formatUsd(position.size)}
-      </td>
-      <td
-        className="px-4 py-3 text-right text-zinc-300"
-        style={{ fontFamily: "var(--font-mono)" }}
-      >
-        {parseFloat(position.avg_entry_price).toFixed(4)}
-      </td>
-      <td
-        className="px-4 py-3 text-right text-zinc-300"
-        style={{ fontFamily: "var(--font-mono)" }}
-      >
-        {parseFloat(position.current_price).toFixed(4)}
-      </td>
-      <td
-        className={cn(
-          "px-4 py-3 text-right font-bold",
-          isPositive ? "text-emerald-500" : "text-red-500"
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-[#1A1A19]">Markets</h1>
+        <p className="mt-1 text-sm text-[#6B6B6B]">
+          Browse and inspect Polymarket prediction markets
+        </p>
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Total Markets" value={stats.total} icon={BarChart3} />
+        <StatCard
+          label="With Orderbooks"
+          value={stats.withBooks}
+          icon={Activity}
+        />
+        <StatCard
+          label="Avg Spread"
+          value={
+            stats.avgSpread !== null
+              ? formatSpreadBps(stats.avgSpread)
+              : "\u2014"
+          }
+          icon={Target}
+        />
+        <StatCard
+          label="Tight Spread (<50bps)"
+          value={stats.tightSpread}
+          icon={TrendingUp}
+        />
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9B9B9B]" />
+          <Input
+            placeholder="Search markets..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="border-[#E6E4DF] bg-white pl-9 text-[#1A1A19] placeholder:text-[#9B9B9B]"
+          />
+        </div>
+
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="active-only"
+              checked={activeOnly}
+              onCheckedChange={setActiveOnly}
+            />
+            <Label
+              htmlFor="active-only"
+              className="text-sm text-[#6B6B6B] cursor-pointer"
+            >
+              Active only
+            </Label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Switch
+              id="has-orderbooks"
+              checked={hasOrderbooks}
+              onCheckedChange={setHasOrderbooks}
+            />
+            <Label
+              htmlFor="has-orderbooks"
+              className="text-sm text-[#6B6B6B] cursor-pointer"
+            >
+              Has Orderbooks
+            </Label>
+          </div>
+
+          <Select value={minVolume} onValueChange={setMinVolume}>
+            <SelectTrigger size="sm" className="w-[100px]">
+              <SelectValue placeholder="Min Vol" />
+            </SelectTrigger>
+            <SelectContent>
+              {MIN_VOLUME_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={sortBy}
+            onValueChange={(v) => setSortBy(v as SortField)}
+          >
+            <SelectTrigger size="sm" className="w-[110px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <span
+            className="text-xs text-[#9B9B9B]"
+            style={{ fontFamily: "var(--font-jetbrains-mono)" }}
+          >
+            {filteredMarkets.length} of {markets.length}
+          </span>
+        </div>
+      </div>
+
+      {/* Markets table */}
+      <div className="rounded-2xl bg-white">
+        {markets.length === 0 ? (
+          <div className="flex h-[300px] items-center justify-center text-sm text-[#9B9B9B]">
+            No markets loaded
+          </div>
+        ) : (
+          <DataTable
+            columns={MARKET_COLUMNS}
+            data={filteredMarkets}
+            pageSize={20}
+            onRowClick={handleRowClick}
+          />
         )}
-        style={{ fontFamily: "var(--font-mono)" }}
-      >
-        {formatPnl(position.unrealized_pnl)}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }

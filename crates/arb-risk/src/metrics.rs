@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use arb_core::{ArbType, ExecutionReport};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 /// Performance metrics: Brier score, PnL attribution, drawdown, execution quality.
@@ -68,8 +69,8 @@ impl PerformanceMetrics {
         }
 
         // Convert to f64 for percentage
-        let dd: f64 = drawdown.to_string().parse().unwrap_or(0.0);
-        let peak: f64 = self.peak_equity.to_string().parse().unwrap_or(1.0);
+        let dd: f64 = drawdown.to_f64().unwrap_or(0.0);
+        let peak: f64 = self.peak_equity.to_f64().unwrap_or(1.0);
 
         (dd / peak) * 100.0
     }

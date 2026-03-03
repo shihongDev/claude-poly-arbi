@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use arb_core::{
-    ExecutionReport, Opportunity, RiskDecision,
+    ArbType, ExecutionReport, Opportunity, RiskDecision,
     config::RiskConfig,
     error::Result,
     traits::RiskManager,
@@ -103,6 +103,8 @@ impl RiskManager for RiskLimits {
 
         // Check total exposure
         let current_exposure = tracker.total_exposure();
+        // Compute notional per unit of size_available so we can scale correctly.
+        // exposure_per_unit = sum(leg_vwap * leg_size) / opp.size_available
         let new_exposure: Decimal = opp
             .legs
             .iter()
@@ -110,11 +112,12 @@ impl RiskManager for RiskLimits {
             .sum();
 
         if current_exposure + new_exposure > self.config.max_total_exposure {
-            // Try reducing size
+            // Try reducing size proportionally
             let available = self.config.max_total_exposure - current_exposure;
-            if available > Decimal::ZERO {
-                let ratio = available / new_exposure;
-                let new_size = opp.size_available * ratio;
+            if available > Decimal::ZERO && new_exposure > Decimal::ZERO {
+                // Compute the per-unit notional exposure
+                let exposure_per_unit = new_exposure / opp.size_available;
+                let new_size = available / exposure_per_unit;
                 return Ok(RiskDecision::ReduceSize {
                     new_size,
                     reason: format!(
@@ -159,15 +162,15 @@ impl RiskManager for RiskLimits {
         })
     }
 
-    fn record_execution(&mut self, report: &ExecutionReport) {
+    fn record_execution(&mut self, report: &ExecutionReport, arb_type: ArbType) {
         self.check_daily_reset();
         self.daily_pnl += report.realized_edge;
 
         let mut tracker = self.positions.lock().unwrap();
         tracker.update(report);
 
-        // We don't know the arb_type here, so attribute as generic
-        // The daemon should call metrics.record_execution() with the type
+        // Update performance metrics with PnL attribution and equity tracking
+        self.metrics.record_execution(report, arb_type);
     }
 
     fn is_kill_switch_active(&self) -> bool {

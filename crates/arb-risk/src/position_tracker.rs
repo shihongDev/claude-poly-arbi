@@ -32,7 +32,7 @@ impl PositionTracker {
                 .entry(leg.token_id.clone())
                 .or_insert_with(|| Position {
                     token_id: leg.token_id.clone(),
-                    condition_id: String::new(),
+                    condition_id: leg.condition_id.clone(),
                     size: Decimal::ZERO,
                     avg_entry_price: Decimal::ZERO,
                     current_price: leg.actual_fill_price,
@@ -143,6 +143,7 @@ mod tests {
             legs: vec![LegReport {
                 order_id: "ord1".into(),
                 token_id: token.into(),
+                condition_id: String::new(),
                 side,
                 expected_vwap: price,
                 actual_fill_price: price,

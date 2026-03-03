@@ -44,11 +44,11 @@ function truncateId(id: string, chars = 8): string {
 
 function modeBadge(mode: TradingMode) {
   return mode === "Paper" ? (
-    <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/25">
+    <Badge className="bg-blue-50 text-blue-600">
       Paper
     </Badge>
   ) : (
-    <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/25">
+    <Badge className="bg-[#DAE9E0] text-[#2D6A4F]">
       Live
     </Badge>
   );
@@ -58,25 +58,25 @@ function statusBadge(status: LegReport["status"]) {
   switch (status) {
     case "FullyFilled":
       return (
-        <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/25">
+        <Badge className="bg-[#DAE9E0] text-[#2D6A4F]">
           Filled
         </Badge>
       );
     case "PartiallyFilled":
       return (
-        <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/25">
+        <Badge className="bg-amber-50 text-amber-600">
           Partial
         </Badge>
       );
     case "Rejected":
       return (
-        <Badge className="bg-red-500/15 text-red-400 border-red-500/25">
+        <Badge className="bg-[#F5E0DD] text-[#B44C3F]">
           Rejected
         </Badge>
       );
     case "Cancelled":
       return (
-        <Badge className="bg-zinc-500/15 text-zinc-400 border-zinc-500/25">
+        <Badge className="bg-[#F0EEEA] text-[#6B6B6B]">
           Cancelled
         </Badge>
       );
@@ -85,11 +85,11 @@ function statusBadge(status: LegReport["status"]) {
 
 function sideBadge(side: LegReport["side"]) {
   return side === "Buy" ? (
-    <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/25">
+    <Badge className="bg-[#DAE9E0] text-[#2D6A4F]">
       Buy
     </Badge>
   ) : (
-    <Badge className="bg-red-500/15 text-red-400 border-red-500/25">
+    <Badge className="bg-[#F5E0DD] text-[#B44C3F]">
       Sell
     </Badge>
   );
@@ -101,7 +101,7 @@ const HISTORY_COLUMNS: Column<ExecutionReport>[] = [
     header: "Time",
     sortable: true,
     render: (row) => (
-      <span className="text-zinc-300">{timeAgo(row.timestamp)}</span>
+      <span className="text-[#1A1A19]">{timeAgo(row.timestamp)}</span>
     ),
     getValue: (row) => new Date(row.timestamp).getTime(),
   },
@@ -111,7 +111,7 @@ const HISTORY_COLUMNS: Column<ExecutionReport>[] = [
     sortable: true,
     mono: true,
     render: (row) => (
-      <span className="text-zinc-300" title={row.opportunity_id}>
+      <span className="text-[#1A1A19]" title={row.opportunity_id}>
         {truncateId(row.opportunity_id)}
       </span>
     ),
@@ -129,7 +129,7 @@ const HISTORY_COLUMNS: Column<ExecutionReport>[] = [
     sortable: true,
     mono: true,
     render: (row) => (
-      <span className="text-zinc-300">{row.legs.length}</span>
+      <span className="text-[#1A1A19]">{row.legs.length}</span>
     ),
     getValue: (row) => row.legs.length,
   },
@@ -141,7 +141,7 @@ const HISTORY_COLUMNS: Column<ExecutionReport>[] = [
     render: (row) => {
       const val = parseFloat(row.realized_edge);
       return (
-        <span className={val >= 0 ? "text-emerald-500" : "text-red-500"}>
+        <span className={val >= 0 ? "text-[#2D6A4F]" : "text-[#B44C3F]"}>
           {formatPnl(row.realized_edge)}
         </span>
       );
@@ -157,7 +157,7 @@ const HISTORY_COLUMNS: Column<ExecutionReport>[] = [
       const val = Math.abs(parseFloat(row.slippage));
       const isHigh = val > 0.005;
       return (
-        <span className={isHigh ? "text-red-500" : "text-zinc-300"}>
+        <span className={isHigh ? "text-[#B44C3F]" : "text-[#1A1A19]"}>
           {formatDecimal(row.slippage, 4)}
         </span>
       );
@@ -170,7 +170,7 @@ const HISTORY_COLUMNS: Column<ExecutionReport>[] = [
     sortable: true,
     mono: true,
     render: (row) => (
-      <span className="text-zinc-300">{formatUsd(row.total_fees)}</span>
+      <span className="text-[#1A1A19]">{formatUsd(row.total_fees)}</span>
     ),
     getValue: (row) => parseFloat(row.total_fees),
   },
@@ -236,9 +236,9 @@ export default function HistoryPage() {
     return {
       tooltip: {
         trigger: "item" as const,
-        backgroundColor: "#18181b",
-        borderColor: "#3f3f46",
-        textStyle: { color: "#d4d4d8", fontFamily: "var(--font-mono)" },
+        backgroundColor: "#FFFFFF",
+        borderColor: "#E6E4DF",
+        textStyle: { color: "#1A1A19", fontFamily: "var(--font-jetbrains-mono)" },
         formatter: (params: { value: [number, number] }) => {
           const [expected, actual] = params.value;
           const diff = actual - expected;
@@ -256,32 +256,32 @@ export default function HistoryPage() {
         name: "Expected VWAP",
         nameLocation: "center" as const,
         nameGap: 32,
-        nameTextStyle: { color: "#a1a1aa", fontSize: 11 },
+        nameTextStyle: { color: "#6B6B6B", fontSize: 11 },
         min: axisMin,
         max: axisMax,
-        axisLine: { lineStyle: { color: "#3f3f46" } },
+        axisLine: { lineStyle: { color: "#E6E4DF" } },
         axisLabel: {
-          color: "#a1a1aa",
+          color: "#6B6B6B",
           fontSize: 11,
-          fontFamily: "var(--font-mono)",
+          fontFamily: "var(--font-jetbrains-mono)",
         },
-        splitLine: { lineStyle: { color: "#27272a" } },
+        splitLine: { lineStyle: { color: "#F0EEEA" } },
       },
       yAxis: {
         type: "value" as const,
         name: "Actual Fill Price",
         nameLocation: "center" as const,
         nameGap: 44,
-        nameTextStyle: { color: "#a1a1aa", fontSize: 11 },
+        nameTextStyle: { color: "#6B6B6B", fontSize: 11 },
         min: axisMin,
         max: axisMax,
-        axisLine: { lineStyle: { color: "#3f3f46" } },
+        axisLine: { lineStyle: { color: "#E6E4DF" } },
         axisLabel: {
-          color: "#a1a1aa",
+          color: "#6B6B6B",
           fontSize: 11,
-          fontFamily: "var(--font-mono)",
+          fontFamily: "var(--font-jetbrains-mono)",
         },
-        splitLine: { lineStyle: { color: "#27272a" } },
+        splitLine: { lineStyle: { color: "#F0EEEA" } },
       },
       series: [
         {
@@ -291,7 +291,7 @@ export default function HistoryPage() {
             [axisMin, axisMin],
             [axisMax, axisMax],
           ],
-          lineStyle: { color: "#52525b", type: "dashed" as const, width: 1 },
+          lineStyle: { color: "#9B9B9B", type: "dashed" as const, width: 1 },
           symbol: "none",
           silent: true,
           z: 1,
@@ -300,7 +300,7 @@ export default function HistoryPage() {
           name: "Overpaid",
           type: "scatter" as const,
           data: overpaid,
-          itemStyle: { color: "#ef4444", opacity: 0.7 },
+          itemStyle: { color: "#B44C3F", opacity: 0.7 },
           symbolSize: 6,
           z: 2,
         },
@@ -308,14 +308,14 @@ export default function HistoryPage() {
           name: "Underpaid",
           type: "scatter" as const,
           data: underpaid,
-          itemStyle: { color: "#10b981", opacity: 0.7 },
+          itemStyle: { color: "#2D6A4F", opacity: 0.7 },
           symbolSize: 6,
           z: 2,
         },
       ],
       legend: {
         bottom: 0,
-        textStyle: { color: "#a1a1aa", fontSize: 11 },
+        textStyle: { color: "#6B6B6B", fontSize: 11 },
         itemWidth: 10,
         itemHeight: 10,
         data: [
@@ -330,8 +330,8 @@ export default function HistoryPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Trade History</h1>
-        <p className="mt-1 text-sm text-zinc-400">
+        <h1 className="text-2xl font-bold text-[#1A1A19]">Trade History</h1>
+        <p className="mt-1 text-sm text-[#6B6B6B]">
           Execution reports, slippage analysis, and historical performance
         </p>
       </div>
@@ -359,7 +359,7 @@ export default function HistoryPage() {
 
       {/* Filter Bar */}
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
           Mode:
         </span>
         {MODE_FILTERS.map((f) => (
@@ -369,8 +369,8 @@ export default function HistoryPage() {
             size="xs"
             className={cn(
               modeFilter === f
-                ? "bg-zinc-700 text-white hover:bg-zinc-600"
-                : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                ? "bg-[#1A1A19] text-white hover:bg-[#333]"
+                : "text-[#6B6B6B] hover:text-[#1A1A19] hover:bg-[#F0EEEA]"
             )}
             onClick={() => setModeFilter(f)}
           >
@@ -380,14 +380,14 @@ export default function HistoryPage() {
       </div>
 
       {/* Trade History Table */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900">
-        <div className="border-b border-zinc-800 px-5 py-4">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+      <div className="rounded-2xl bg-white">
+        <div className="border-b border-[#E6E4DF] px-5 py-4">
+          <h2 className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
             Execution Reports
           </h2>
         </div>
         {filteredHistory.length === 0 ? (
-          <div className="flex h-[300px] items-center justify-center text-sm text-zinc-600">
+          <div className="flex h-[300px] items-center justify-center text-sm text-[#9B9B9B]">
             No trades executed yet
           </div>
         ) : (
@@ -401,9 +401,9 @@ export default function HistoryPage() {
       </div>
 
       {/* Slippage Analysis Chart */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900">
-        <div className="border-b border-zinc-800 px-5 py-4">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-400">
+      <div className="rounded-2xl bg-white">
+        <div className="border-b border-[#E6E4DF] px-5 py-4">
+          <h2 className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
             Slippage Analysis
           </h2>
         </div>
@@ -413,10 +413,9 @@ export default function HistoryPage() {
               option={scatterChartOption}
               style={{ height: 320, width: "100%" }}
               opts={{ renderer: "canvas" }}
-              theme="dark"
             />
           ) : (
-            <div className="flex h-[320px] items-center justify-center text-sm text-zinc-600">
+            <div className="flex h-[320px] items-center justify-center text-sm text-[#9B9B9B]">
               No leg data to chart
             </div>
           )}
@@ -430,16 +429,16 @@ export default function HistoryPage() {
           if (!open) setSelectedReport(null);
         }}
       >
-        <DialogContent className="border-zinc-800 bg-zinc-900 text-zinc-100 sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-white">
+            <DialogTitle>
               Execution Report
             </DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription>
               Full details for opportunity{" "}
               <span
-                className="text-zinc-300"
-                style={{ fontFamily: "var(--font-mono)" }}
+                className="text-[#1A1A19]"
+                style={{ fontFamily: "var(--font-jetbrains-mono)" }}
               >
                 {selectedReport?.opportunity_id}
               </span>
@@ -451,75 +450,75 @@ export default function HistoryPage() {
               {/* Summary fields */}
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
+                  <span className="text-xs uppercase tracking-wider text-[#9B9B9B]">
                     Opportunity ID
                   </span>
                   <p
-                    className="mt-1 text-zinc-200 break-all"
-                    style={{ fontFamily: "var(--font-mono)" }}
+                    className="mt-1 text-[#1A1A19] break-all"
+                    style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                   >
                     {selectedReport.opportunity_id}
                   </p>
                 </div>
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
+                  <span className="text-xs uppercase tracking-wider text-[#9B9B9B]">
                     Timestamp
                   </span>
-                  <p className="mt-1 text-zinc-200">
+                  <p className="mt-1 text-[#1A1A19]">
                     {new Date(selectedReport.timestamp).toLocaleString()}
                   </p>
                 </div>
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
+                  <span className="text-xs uppercase tracking-wider text-[#9B9B9B]">
                     Mode
                   </span>
                   <div className="mt-1">{modeBadge(selectedReport.mode)}</div>
                 </div>
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
+                  <span className="text-xs uppercase tracking-wider text-[#9B9B9B]">
                     Legs
                   </span>
                   <p
-                    className="mt-1 text-zinc-200"
-                    style={{ fontFamily: "var(--font-mono)" }}
+                    className="mt-1 text-[#1A1A19]"
+                    style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                   >
                     {selectedReport.legs.length}
                   </p>
                 </div>
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
+                  <span className="text-xs uppercase tracking-wider text-[#9B9B9B]">
                     Realized Edge
                   </span>
                   <p
                     className={cn(
                       "mt-1 font-bold",
                       parseFloat(selectedReport.realized_edge) >= 0
-                        ? "text-emerald-500"
-                        : "text-red-500"
+                        ? "text-[#2D6A4F]"
+                        : "text-[#B44C3F]"
                     )}
-                    style={{ fontFamily: "var(--font-mono)" }}
+                    style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                   >
                     {formatPnl(selectedReport.realized_edge)}
                   </p>
                 </div>
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
+                  <span className="text-xs uppercase tracking-wider text-[#9B9B9B]">
                     Slippage
                   </span>
                   <p
-                    className="mt-1 text-zinc-200"
-                    style={{ fontFamily: "var(--font-mono)" }}
+                    className="mt-1 text-[#1A1A19]"
+                    style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                   >
                     {formatDecimal(selectedReport.slippage, 4)}
                   </p>
                 </div>
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
+                  <span className="text-xs uppercase tracking-wider text-[#9B9B9B]">
                     Total Fees
                   </span>
                   <p
-                    className="mt-1 text-zinc-200"
-                    style={{ fontFamily: "var(--font-mono)" }}
+                    className="mt-1 text-[#1A1A19]"
+                    style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                   >
                     {formatUsd(selectedReport.total_fees)}
                   </p>
@@ -528,32 +527,32 @@ export default function HistoryPage() {
 
               {/* Legs table */}
               <div>
-                <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-400">
+                <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
                   Leg Details
                 </h3>
-                <div className="rounded-md border border-zinc-800 overflow-x-auto">
+                <div className="rounded-md border border-[#E6E4DF] overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-zinc-800 hover:bg-transparent">
-                        <TableHead className="bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                      <TableRow className="border-[#E6E4DF] hover:bg-transparent">
+                        <TableHead className="bg-white text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                           Order ID
                         </TableHead>
-                        <TableHead className="bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        <TableHead className="bg-white text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                           Token ID
                         </TableHead>
-                        <TableHead className="bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        <TableHead className="bg-white text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                           Side
                         </TableHead>
-                        <TableHead className="bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        <TableHead className="bg-white text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                           Exp. VWAP
                         </TableHead>
-                        <TableHead className="bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        <TableHead className="bg-white text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                           Act. Fill
                         </TableHead>
-                        <TableHead className="bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        <TableHead className="bg-white text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                           Size
                         </TableHead>
-                        <TableHead className="bg-zinc-900 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                        <TableHead className="bg-white text-xs font-medium uppercase tracking-wider text-[#9B9B9B]">
                           Status
                         </TableHead>
                       </TableRow>
@@ -562,19 +561,19 @@ export default function HistoryPage() {
                       {selectedReport.legs.map((leg, i) => (
                         <TableRow
                           key={i}
-                          className="border-zinc-800 bg-zinc-950 hover:bg-zinc-800/50"
+                          className="border-[#E6E4DF] bg-[#F8F7F4] hover:bg-[#F8F7F4]"
                         >
                           <TableCell
-                            className="text-zinc-300"
-                            style={{ fontFamily: "var(--font-mono)" }}
+                            className="text-[#1A1A19]"
+                            style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                           >
                             <span title={leg.order_id}>
                               {truncateId(leg.order_id)}
                             </span>
                           </TableCell>
                           <TableCell
-                            className="text-zinc-300"
-                            style={{ fontFamily: "var(--font-mono)" }}
+                            className="text-[#1A1A19]"
+                            style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                           >
                             <span title={leg.token_id}>
                               {truncateId(leg.token_id)}
@@ -582,20 +581,20 @@ export default function HistoryPage() {
                           </TableCell>
                           <TableCell>{sideBadge(leg.side)}</TableCell>
                           <TableCell
-                            className="text-zinc-300"
-                            style={{ fontFamily: "var(--font-mono)" }}
+                            className="text-[#1A1A19]"
+                            style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                           >
                             {formatDecimal(leg.expected_vwap, 4)}
                           </TableCell>
                           <TableCell
-                            className="text-zinc-300"
-                            style={{ fontFamily: "var(--font-mono)" }}
+                            className="text-[#1A1A19]"
+                            style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                           >
                             {formatDecimal(leg.actual_fill_price, 4)}
                           </TableCell>
                           <TableCell
-                            className="text-zinc-300"
-                            style={{ fontFamily: "var(--font-mono)" }}
+                            className="text-[#1A1A19]"
+                            style={{ fontFamily: "var(--font-jetbrains-mono)" }}
                           >
                             {formatDecimal(leg.filled_size, 4)}
                           </TableCell>

@@ -32,7 +32,7 @@ pub async fn execute(condition_id: &str) -> anyhow::Result<()> {
         .first()
         .copied()
         .unwrap_or(rust_decimal::Decimal::new(5, 1));
-    let p: f64 = yes_price.to_string().parse().unwrap_or(0.5);
+    let p: f64 = rust_decimal::prelude::ToPrimitive::to_f64(&yes_price).unwrap_or(0.5);
 
     // ─── Monte Carlo ───
     println!("--- Monte Carlo Simulation ---");

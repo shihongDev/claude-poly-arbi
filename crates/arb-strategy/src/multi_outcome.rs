@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arb_core::{
     ArbType, MarketState, Opportunity, Side, TradeLeg,
     config::{MultiOutcomeConfig, StrategyConfig},
@@ -8,7 +10,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::sync::Arc;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -40,7 +41,7 @@ impl MultiOutcomeDetector {
     ///
     /// In Polymarket, multi-outcome events have multiple markets with `neg_risk = true`.
     /// Each market represents one outcome. We group them by shared condition characteristics.
-    fn group_by_event<'a>(&self, markets: &'a [MarketState]) -> Vec<Vec<&'a MarketState>> {
+    fn group_by_event<'a>(&self, markets: &'a [Arc<MarketState>]) -> Vec<Vec<&'a MarketState>> {
         // For now, we check each individual neg_risk market that has >2 outcomes
         // In reality, multi-outcome events span multiple markets that share an event_id.
         // Since we don't have event_id in MarketState yet, we treat each neg_risk market
@@ -49,7 +50,7 @@ impl MultiOutcomeDetector {
 
         for market in markets {
             if market.neg_risk && market.outcomes.len() > 2 && market.active {
-                groups.push(vec![market]);
+                groups.push(vec![market.as_ref()]);
             }
         }
 
@@ -61,6 +62,20 @@ impl MultiOutcomeDetector {
 
         for market in outcomes {
             if market.outcome_prices.len() < 2 || market.orderbooks.len() < 2 {
+                continue;
+            }
+
+            // Ensure token_ids and orderbooks are aligned (same length).
+            // If a partial fetch returned fewer orderbooks than tokens, the
+            // index-based access below would pair the wrong token with the
+            // wrong orderbook, producing incorrect VWAP estimates.
+            if market.token_ids.len() != market.orderbooks.len() {
+                debug!(
+                    market = %market.condition_id,
+                    tokens = market.token_ids.len(),
+                    books = market.orderbooks.len(),
+                    "Skipping: token_ids/orderbooks length mismatch"
+                );
                 continue;
             }
 
@@ -249,7 +264,7 @@ impl ArbDetector for MultiOutcomeDetector {
         ArbType::MultiOutcome
     }
 
-    async fn scan(&self, markets: &[MarketState]) -> Result<Vec<Opportunity>> {
+    async fn scan(&self, markets: &[Arc<MarketState>]) -> Result<Vec<Opportunity>> {
         let groups = self.group_by_event(markets);
         let mut all_opps = Vec::new();
 

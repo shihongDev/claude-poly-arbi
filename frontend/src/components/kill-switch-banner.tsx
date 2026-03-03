@@ -20,14 +20,14 @@ export function KillSwitchBanner() {
   };
 
   return (
-    <div className="flex w-full items-center justify-between bg-red-600 px-6 py-3">
+    <div className="flex w-full items-center justify-between bg-[#B44C3F] px-6 py-3">
       <div className="flex items-center gap-3">
-        <AlertTriangle className="h-5 w-5 text-zinc-950" />
-        <span className="text-sm font-semibold text-zinc-950">
+        <AlertTriangle className="h-5 w-5 text-white" />
+        <span className="text-sm font-semibold text-white">
           KILL SWITCH ACTIVE
         </span>
         {killSwitchReason && (
-          <span className="text-sm text-zinc-950/80">
+          <span className="text-sm text-white/80">
             &mdash; {killSwitchReason}
           </span>
         )}
@@ -36,7 +36,7 @@ export function KillSwitchBanner() {
         variant="outline"
         size="sm"
         onClick={handleResume}
-        className="border-zinc-950/30 bg-transparent text-zinc-950 hover:bg-red-700 hover:text-zinc-950"
+        className="border-white/30 bg-transparent text-white hover:bg-[#9E3F33] hover:text-white"
       >
         Resume Trading
       </Button>

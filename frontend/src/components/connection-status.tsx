@@ -4,9 +4,9 @@ import { useDashboardStore } from "@/store";
 import { cn } from "@/lib/utils";
 
 const statusConfig = {
-  connected: { color: "bg-emerald-500", label: "Connected" },
+  connected: { color: "bg-[#2D6A4F]", label: "Connected" },
   connecting: { color: "bg-amber-500", label: "Connecting..." },
-  disconnected: { color: "bg-red-500", label: "Disconnected" },
+  disconnected: { color: "bg-[#B44C3F]", label: "Disconnected" },
 } as const;
 
 export function ConnectionStatus() {
@@ -16,7 +16,7 @@ export function ConnectionStatus() {
   return (
     <div className="flex items-center gap-2">
       <span className={cn("h-2 w-2 rounded-full", config.color)} />
-      <span className="text-xs text-zinc-400">{config.label}</span>
+      <span className="text-xs text-[#6B6B6B]">{config.label}</span>
     </div>
   );
 }
