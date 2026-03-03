@@ -221,7 +221,11 @@ export default function MarketsPage() {
   const markets = useDashboardStore((s) => s.markets);
   const opportunities = useDashboardStore((s) => s.opportunities);
   const positions = useDashboardStore((s) => s.positions);
+  const wsStatus = useDashboardStore((s) => s.wsStatus);
+  const marketsLoading = useDashboardStore((s) => s.marketsLoading);
   const router = useRouter();
+
+  const isLoading = markets.length === 0 && (marketsLoading || wsStatus === "connecting");
 
   const [search, setSearch] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
@@ -460,7 +464,21 @@ export default function MarketsPage() {
 
       {/* Markets table */}
       <div className="rounded-2xl bg-white">
-        {markets.length === 0 ? (
+        {isLoading ? (
+          <div className="space-y-3 p-6">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 animate-pulse">
+                <div className="h-4 w-2/5 rounded bg-[#E6E4DF]" />
+                <div className="h-4 w-1/6 rounded bg-[#E6E4DF]" />
+                <div className="h-4 w-1/6 rounded bg-[#E6E4DF]" />
+                <div className="h-4 w-1/6 rounded bg-[#E6E4DF]" />
+              </div>
+            ))}
+            <p className="text-center text-sm text-[#9B9B9B] mt-4">
+              Loading markets from Polymarket...
+            </p>
+          </div>
+        ) : markets.length === 0 ? (
           <div className="flex h-[300px] items-center justify-center text-sm text-[#9B9B9B]">
             No markets loaded
           </div>

@@ -146,6 +146,16 @@ impl PerformanceMetrics {
     pub fn trade_count(&self) -> usize {
         self.execution_reports.len()
     }
+
+    /// Peak equity value (used for drawdown tracking).
+    pub fn peak_equity(&self) -> Decimal {
+        self.peak_equity
+    }
+
+    /// Current equity value.
+    pub fn current_equity(&self) -> Decimal {
+        self.current_equity
+    }
 }
 
 impl Default for PerformanceMetrics {

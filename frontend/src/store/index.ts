@@ -18,7 +18,6 @@ interface DashboardStore {
 
   opportunities: Opportunity[];
   opportunitiesLoading: boolean;
-  addOpportunity: (o: Opportunity) => void;
   setOpportunities: (o: Opportunity[]) => void;
 
   positions: Position[];
@@ -59,11 +58,6 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
 
   opportunities: [],
   opportunitiesLoading: true,
-  addOpportunity: (o) =>
-    set((s) => ({
-      opportunities: [o, ...s.opportunities].slice(0, 200),
-      opportunitiesLoading: false,
-    })),
   setOpportunities: (opportunities) => set({ opportunities, opportunitiesLoading: false }),
 
   positions: [],
@@ -93,14 +87,6 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
     const { type, data } = event;
     set((s) => {
       switch (type) {
-        case "opportunity_detected":
-          return {
-            opportunities: [
-              data as Opportunity,
-              ...s.opportunities,
-            ].slice(0, 200),
-            opportunitiesLoading: false,
-          };
         case "opportunities_batch":
           return {
             opportunities: [
@@ -148,8 +134,6 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
           }
           return { markets: [...s.markets, market] };
         }
-        case "market_count_update":
-          return {};
         default:
           return {};
       }

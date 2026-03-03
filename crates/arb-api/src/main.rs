@@ -3,19 +3,23 @@ mod routes;
 mod state;
 mod ws;
 
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use arb_core::config::ArbConfig;
+use arb_core::ExecutionReport;
 use arb_data::market_cache::MarketCache;
 use arb_risk::limits::RiskLimits;
+use arb_risk::position_tracker::PositionTracker;
 use axum::routing::{get, post};
 use axum::Router;
-use rust_decimal::Decimal;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,20 +34,72 @@ async fn main() -> anyhow::Result<()> {
     let config = ArbConfig::load();
     let (ws_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
+    // ── Persistence paths ──────────────────────────────────────
+    let config_dir = ArbConfig::config_dir();
+    let positions_path = config_dir.join("positions.json");
+    let history_path = config_dir.join("history.json");
+
+    // ── Load persisted positions ───────────────────────────────
+    let mut risk_limits = RiskLimits::new(config.risk.clone(), config.general.starting_equity);
+
+    if positions_path.exists() {
+        match PositionTracker::load(&positions_path) {
+            Ok(tracker) => {
+                let count = tracker.active_count();
+                risk_limits.load_positions(tracker);
+                tracing::info!(
+                    path = %positions_path.display(),
+                    active_positions = count,
+                    "Loaded positions from disk"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    path = %positions_path.display(),
+                    "Failed to load positions, starting fresh"
+                );
+            }
+        }
+    }
+
+    // ── Load persisted execution history ───────────────────────
+    let initial_history: Vec<ExecutionReport> = if history_path.exists() {
+        match std::fs::read_to_string(&history_path) {
+            Ok(content) => {
+                let history: Vec<ExecutionReport> =
+                    serde_json::from_str(&content).unwrap_or_default();
+                tracing::info!(
+                    path = %history_path.display(),
+                    trade_count = history.len(),
+                    "Loaded execution history from disk"
+                );
+                history
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    path = %history_path.display(),
+                    "Failed to load history, starting fresh"
+                );
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
     // Check if the file-based kill switch is already active at startup
     let kill_switch_initial = arb_risk::kill_switch::KillSwitch::new().is_active();
 
-    let state = state::AppState {
+    let state = AppState {
         market_cache: Arc::new(MarketCache::new()),
-        risk_limits: Arc::new(Mutex::new(RiskLimits::new(
-            config.risk.clone(),
-            Decimal::from(10_000),
-        ))),
+        risk_limits: Arc::new(Mutex::new(risk_limits)),
         kill_switch_active: Arc::new(AtomicBool::new(kill_switch_initial)),
         config: Arc::new(RwLock::new(config)),
         ws_tx,
         opportunities: Arc::new(RwLock::new(Vec::new())),
-        execution_history: Arc::new(RwLock::new(Vec::new())),
+        execution_history: Arc::new(RwLock::new(initial_history)),
         cached_metrics_json: Arc::new(RwLock::new("{}".to_string())),
         start_time: Instant::now(),
     };
@@ -75,10 +131,137 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state.clone());
 
     // Spawn background engine that fetches live Polymarket data
-    engine_task::spawn_engine(state);
+    engine_task::spawn_engine(state.clone());
 
+    // ── Periodic auto-save (every 60s) ─────────────────────────
+    let autosave_state = state.clone();
+    let autosave_pos = positions_path.clone();
+    let autosave_hist = history_path.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        // The first tick completes immediately — skip it so we don't
+        // save right at startup (we just loaded).
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            save_state(&autosave_state, &autosave_pos, &autosave_hist);
+            tracing::debug!("Auto-save complete");
+        }
+    });
+
+    // ── Start server with graceful shutdown ─────────────────────
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     tracing::info!("arb-api server listening on http://0.0.0.0:8080");
-    axum::serve(listener, app).await?;
+
+    let shutdown_state = state.clone();
+    let shutdown_positions = positions_path.clone();
+    let shutdown_history = history_path.clone();
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    // Server has stopped — save state before exit
+    tracing::info!("Shutdown signal received, saving state...");
+    save_state(&shutdown_state, &shutdown_positions, &shutdown_history);
+    tracing::info!("State saved. Goodbye.");
+
     Ok(())
+}
+
+/// Wait for SIGINT (Ctrl+C) or SIGTERM.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+}
+
+/// Save positions and execution history to disk.
+fn save_state(state: &AppState, positions_path: &Path, history_path: &Path) {
+    save_positions(state, positions_path);
+    save_history(state, history_path);
+}
+
+fn save_positions(state: &AppState, path: &Path) {
+    let rl = match state.risk_limits.lock() {
+        Ok(rl) => rl,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to lock risk_limits for position save");
+            return;
+        }
+    };
+    let positions_arc = rl.positions();
+    let tracker = match positions_arc.lock() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to lock position tracker for save");
+            return;
+        }
+    };
+    match tracker.save(path) {
+        Ok(()) => {
+            tracing::info!(
+                path = %path.display(),
+                active = tracker.active_count(),
+                "Positions saved"
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, path = %path.display(), "Failed to save positions");
+        }
+    }
+}
+
+fn save_history(state: &AppState, path: &Path) {
+    let history = match state.execution_history.read() {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to lock execution_history for save");
+            return;
+        }
+    };
+
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        tracing::error!(error = %e, "Failed to create history directory");
+        return;
+    }
+
+    match serde_json::to_string_pretty(&*history) {
+        Ok(json) => match std::fs::write(path, json) {
+            Ok(()) => {
+                tracing::info!(
+                    path = %path.display(),
+                    trade_count = history.len(),
+                    "Execution history saved"
+                );
+            }
+            Err(e) => {
+                tracing::error!(error = %e, path = %path.display(), "Failed to write history file");
+            }
+        },
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to serialize execution history");
+        }
+    }
 }

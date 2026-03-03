@@ -37,6 +37,12 @@ pub struct MarketState {
     pub end_date_iso: Option<String>,
     pub slug: Option<String>,
     pub one_day_price_change: Option<Decimal>,
+    /// The Polymarket event ID this market belongs to.
+    /// Multi-outcome events have multiple markets sharing the same event_id.
+    /// Used by `MultiOutcomeDetector` to group related markets for cross-market
+    /// probability-sum arbitrage detection.
+    #[serde(default)]
+    pub event_id: Option<String>,
     /// Cache generation when this market was last updated.
     /// Used for dirty-tracking: detectors only scan markets where
     /// `last_updated_gen > last_scan_gen`.

@@ -44,6 +44,23 @@ pub async fn place_order(
         );
     }
 
+    // For sell orders, compute realized PnL against the existing position's
+    // average entry price. Buy orders have no realized PnL at placement time.
+    let realized = if req.side == Side::Sell {
+        let rl = state.risk_limits.lock().unwrap();
+        if let Ok(tracker) = rl.positions().lock() {
+            if let Some(pos) = tracker.get(&req.token_id) {
+                (req.price - pos.avg_entry_price) * req.size
+            } else {
+                dec!(0)
+            }
+        } else {
+            dec!(0)
+        }
+    } else {
+        dec!(0)
+    };
+
     let leg = LegReport {
         order_id: Uuid::new_v4().to_string(),
         token_id: req.token_id.clone(),
@@ -58,7 +75,7 @@ pub async fn place_order(
     let report = ExecutionReport {
         opportunity_id: Uuid::new_v4(),
         legs: vec![leg],
-        realized_edge: dec!(0),
+        realized_edge: realized,
         slippage: dec!(0),
         total_fees: dec!(0),
         timestamp: Utc::now(),

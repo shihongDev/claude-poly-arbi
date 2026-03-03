@@ -113,16 +113,13 @@ export interface StatusResponse {
 }
 
 export type WsEventType =
-  | "opportunity_detected"
   | "opportunities_batch"
   | "trade_executed"
   | "position_update"
   | "metrics_update"
   | "kill_switch_change"
   | "market_update"
-  | "markets_loaded"
-  | "market_count_update"
-  | "alert";
+  | "markets_loaded";
 
 export interface WsEvent {
   type: WsEventType;
@@ -193,4 +190,66 @@ export interface SimulateParams {
   particle_count?: number;
   process_noise?: number;
   observation_noise?: number;
+}
+
+// ── Simulation Status types ─────────────────────────────────
+
+export interface SimulationEstimate {
+  condition_id: string;
+  market_price: number;
+  model_estimate: number;
+  divergence: number;
+  confidence_interval: [number, number];
+  method: string;
+}
+
+export interface ConvergenceDiagnostics {
+  paths_used: number;
+  standard_error: number;
+  converged: boolean;
+  gelman_rubin: number | null;
+}
+
+export interface ModelHealth {
+  brier_score_30m: number;
+  brier_score_24h: number;
+  confidence_level: number;
+  drift_detected: boolean;
+}
+
+export interface VarSummary {
+  var_95: string;
+  var_99: string;
+  cvar_95: string;
+  method: string;
+}
+
+export interface SimulationStatus {
+  estimates: SimulationEstimate[];
+  convergence: ConvergenceDiagnostics;
+  model_health: ModelHealth;
+  var_summary: VarSummary;
+}
+
+// ── Stress Test types ───────────────────────────────────────
+
+export type StressScenarioType =
+  | "liquidity_shock"
+  | "correlation_spike"
+  | "flash_crash"
+  | "kill_switch_delay";
+
+export interface StressScenario {
+  scenario: StressScenarioType;
+  params: Record<string, number>;
+}
+
+export interface StressTestResult {
+  scenario: StressScenarioType;
+  portfolio_impact: string;
+  max_loss: string;
+  positions_at_risk: number;
+  var_before: string;
+  var_after: string;
+  details: string;
 }

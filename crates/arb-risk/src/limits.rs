@@ -8,6 +8,7 @@ use arb_core::{
 };
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::*;
 use tracing::info;
 
 use crate::kill_switch::KillSwitch;
@@ -44,6 +45,11 @@ impl RiskLimits {
     /// Get a reference to the position tracker (for status display).
     pub fn positions(&self) -> Arc<Mutex<PositionTracker>> {
         self.positions.clone()
+    }
+
+    /// Replace the internal position tracker with a previously persisted one.
+    pub fn load_positions(&mut self, tracker: PositionTracker) {
+        *self.positions.lock().unwrap() = tracker;
     }
 
     /// Get a reference to the performance metrics.
@@ -190,6 +196,97 @@ impl RiskManager for RiskLimits {
     }
 }
 
+/// Result of Kelly criterion position sizing calculation.
+#[derive(Debug, Clone)]
+pub struct KellyResult {
+    /// Raw Kelly fraction: f* = (p*b - q) / b
+    pub kelly_fraction: f64,
+    /// After applying the multiplier (e.g. 0.25 for quarter-Kelly)
+    pub adjusted_fraction: f64,
+    /// Suggested position size: adjusted_fraction * bankroll
+    pub suggested_size: Decimal,
+}
+
+/// Compute optimal position size using the Kelly criterion.
+///
+/// The Kelly formula maximizes long-run log-wealth growth:
+///   f* = (p * b - q) / b
+/// where:
+///   p = probability of winning (from opportunity confidence)
+///   q = 1 - p (probability of losing)
+///   b = win/loss ratio (net_edge / loss_if_wrong)
+///
+/// In practice, full Kelly is too aggressive, so we default to quarter-Kelly
+/// (kelly_multiplier = 0.25) which sacrifices ~25% growth for ~75% variance reduction.
+///
+/// # Arguments
+/// * `confidence` - Probability of winning (0.0 to 1.0)
+/// * `net_edge` - Expected profit if the trade wins
+/// * `loss_if_wrong` - Expected loss if the trade loses (positive amount)
+/// * `bankroll` - Current total equity
+/// * `kelly_multiplier` - Fraction of Kelly to use (0.25 = quarter-Kelly)
+pub fn kelly_criterion(
+    confidence: f64,
+    net_edge: Decimal,
+    loss_if_wrong: Decimal,
+    bankroll: Decimal,
+    kelly_multiplier: f64,
+) -> KellyResult {
+    // Edge cases
+    if confidence <= 0.0 || loss_if_wrong <= Decimal::ZERO || bankroll <= Decimal::ZERO {
+        return KellyResult {
+            kelly_fraction: 0.0,
+            adjusted_fraction: 0.0,
+            suggested_size: Decimal::ZERO,
+        };
+    }
+
+    if confidence >= 1.0 {
+        // Certain win: Kelly says bet everything (capped to full bankroll)
+        let adjusted = kelly_multiplier.min(1.0);
+        return KellyResult {
+            kelly_fraction: 1.0,
+            adjusted_fraction: adjusted,
+            suggested_size: Decimal::from_f64(adjusted).unwrap_or(Decimal::ZERO) * bankroll,
+        };
+    }
+
+    let p = confidence;
+    let q = 1.0 - p;
+
+    // b = win/loss ratio
+    let b = net_edge.to_f64().unwrap_or(0.0) / loss_if_wrong.to_f64().unwrap_or(1.0);
+
+    if b <= 0.0 {
+        return KellyResult {
+            kelly_fraction: 0.0,
+            adjusted_fraction: 0.0,
+            suggested_size: Decimal::ZERO,
+        };
+    }
+
+    // Kelly fraction: f* = (p*b - q) / b
+    let f_star = (p * b - q) / b;
+
+    // If Kelly fraction is negative or zero, don't bet
+    if f_star <= 0.0 {
+        return KellyResult {
+            kelly_fraction: f_star,
+            adjusted_fraction: 0.0,
+            suggested_size: Decimal::ZERO,
+        };
+    }
+
+    let adjusted = f_star * kelly_multiplier;
+    let size = Decimal::from_f64(adjusted).unwrap_or(Decimal::ZERO) * bankroll;
+
+    KellyResult {
+        kelly_fraction: f_star,
+        adjusted_fraction: adjusted,
+        suggested_size: size,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,5 +387,90 @@ mod tests {
         // Clean up: deactivate so other tests aren't affected
         let mut ks = crate::kill_switch::KillSwitch::new();
         ks.deactivate();
+    }
+
+    // --- Kelly criterion tests ---
+
+    #[test]
+    fn test_kelly_favorable_edge() {
+        // 60% win probability, win $2 / lose $1 → f* = (0.6*2 - 0.4) / 2 = 0.4
+        let result = kelly_criterion(0.60, dec!(2), dec!(1), dec!(10000), 1.0);
+        let expected_f = (0.6 * 2.0 - 0.4) / 2.0; // 0.4
+        assert!(
+            (result.kelly_fraction - expected_f).abs() < 1e-10,
+            "Expected f*={}, got {}",
+            expected_f,
+            result.kelly_fraction
+        );
+        assert!(result.suggested_size > Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_kelly_unfavorable_edge() {
+        // 30% win probability, win $1 / lose $1 → f* = (0.3*1 - 0.7) / 1 = -0.4
+        // Negative Kelly → don't bet
+        let result = kelly_criterion(0.30, dec!(1), dec!(1), dec!(10000), 1.0);
+        assert!(
+            result.kelly_fraction < 0.0,
+            "Unfavorable edge should give negative Kelly"
+        );
+        assert_eq!(
+            result.adjusted_fraction, 0.0,
+            "Adjusted fraction should be 0 for negative Kelly"
+        );
+        assert_eq!(
+            result.suggested_size,
+            Decimal::ZERO,
+            "Suggested size should be 0"
+        );
+    }
+
+    #[test]
+    fn test_kelly_quarter_vs_full() {
+        // Same favorable edge, compare quarter vs full Kelly
+        let full = kelly_criterion(0.60, dec!(2), dec!(1), dec!(10000), 1.0);
+        let quarter = kelly_criterion(0.60, dec!(2), dec!(1), dec!(10000), 0.25);
+
+        assert!(
+            (quarter.adjusted_fraction - full.adjusted_fraction * 0.25).abs() < 1e-10,
+            "Quarter-Kelly adjusted fraction should be 1/4 of full Kelly"
+        );
+        assert!(
+            quarter.suggested_size < full.suggested_size,
+            "Quarter-Kelly size should be smaller than full Kelly"
+        );
+    }
+
+    #[test]
+    fn test_kelly_edge_cases() {
+        // p = 0 → no bet
+        let r0 = kelly_criterion(0.0, dec!(2), dec!(1), dec!(10000), 0.25);
+        assert_eq!(r0.suggested_size, Decimal::ZERO);
+
+        // p = 1 → certain win, fraction = kelly_multiplier
+        let r1 = kelly_criterion(1.0, dec!(2), dec!(1), dec!(10000), 0.25);
+        assert_eq!(r1.kelly_fraction, 1.0);
+        assert!((r1.adjusted_fraction - 0.25).abs() < 1e-10);
+        assert_eq!(r1.suggested_size, dec!(2500)); // 0.25 * 10000
+
+        // Zero bankroll → no bet
+        let rb = kelly_criterion(0.60, dec!(2), dec!(1), Decimal::ZERO, 0.25);
+        assert_eq!(rb.suggested_size, Decimal::ZERO);
+
+        // Zero loss_if_wrong → edge case, no bet
+        let rl = kelly_criterion(0.60, dec!(2), Decimal::ZERO, dec!(10000), 0.25);
+        assert_eq!(rl.suggested_size, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_kelly_coin_flip() {
+        // Fair coin, even payoff → f* = (0.5*1 - 0.5)/1 = 0 → don't bet
+        let result = kelly_criterion(0.50, dec!(1), dec!(1), dec!(10000), 0.25);
+        assert!(
+            result.kelly_fraction.abs() < 1e-10,
+            "Fair coin flip should give f*=0, got {}",
+            result.kelly_fraction
+        );
+        assert_eq!(result.suggested_size, Decimal::ZERO);
     }
 }

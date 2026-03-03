@@ -62,7 +62,6 @@ interface SimulationResult {
   condition_id: string;
   market_price: number;
   monte_carlo: MethodResult;
-  variance_reduced: MethodResult;
   particle_filter: MethodResult;
 }
 
@@ -81,13 +80,6 @@ function normalizeResult(raw: RawSimulationResponse): SimulationResult {
       ci_lower: mc.confidence_interval[0],
       ci_upper: mc.confidence_interval[1],
     },
-    // Variance-reduced uses same MC data (no separate engine yet)
-    variance_reduced: {
-      probability: mc.probability,
-      std_error: mc.standard_error * 0.7,
-      ci_lower: mc.confidence_interval[0],
-      ci_upper: mc.confidence_interval[1],
-    },
     particle_filter: {
       probability: pfProb,
       ci_lower: pfCi[0] ?? pfProb - 0.05,
@@ -101,7 +93,7 @@ function normalizeResult(raw: RawSimulationResponse): SimulationResult {
 // ---------------------------------------------------------------------------
 
 const METHOD_META: {
-  key: keyof Pick<SimulationResult, "monte_carlo" | "variance_reduced" | "particle_filter">;
+  key: keyof Pick<SimulationResult, "monte_carlo" | "particle_filter">;
   label: string;
   color: string;
   badgeClass: string;
@@ -111,12 +103,6 @@ const METHOD_META: {
     label: "Monte Carlo",
     color: "#3b82f6",
     badgeClass: "bg-blue-50 text-blue-600",
-  },
-  {
-    key: "variance_reduced",
-    label: "Variance-Reduced",
-    color: "#2D6A4F",
-    badgeClass: "bg-[#DAE9E0] text-[#2D6A4F]",
   },
   {
     key: "particle_filter",
@@ -336,8 +322,7 @@ export default function SimulationPage() {
       <div>
         <h1 className="text-2xl font-bold text-[#1A1A19]">Simulation</h1>
         <p className="mt-1 text-sm text-[#6B6B6B]">
-          Run Monte Carlo, variance-reduced, and particle filter simulations
-          against market pricing
+          Run Monte Carlo and particle filter simulations against market pricing
         </p>
       </div>
 

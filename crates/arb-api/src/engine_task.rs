@@ -7,8 +7,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arb_core::config::ArbConfig;
-use arb_core::traits::{ArbDetector, MarketDataSource, RiskManager, SlippageEstimator};
-use arb_core::types::ArbType;
+use arb_core::traits::{ArbDetector, MarketDataSource, RiskManager, SlippageEstimator, TradeExecutor};
+use arb_core::types::{ArbType, RiskDecision};
+use arb_execution::paper_trade::PaperTradeExecutor;
 use arb_data::correlation::CorrelationGraph;
 use arb_data::orderbook::OrderbookProcessor;
 use arb_data::poller::{
@@ -96,6 +97,9 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     }
 
     let edge_calculator = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
+
+    // Paper trade executor for auto-execution of approved opportunities
+    let executor = PaperTradeExecutor::default_pessimism();
 
     // ── Phase 1: Fetch all active markets (metadata only, no orderbooks) ──
     info!("Engine: fetching initial market data from Polymarket...");
@@ -250,10 +254,80 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
         }
 
-        // Filter and sort
-        let min_edge = Decimal::from(config.strategy.min_edge_bps);
+        // Filter and sort — read min_edge_bps from live config each tick
+        // so runtime changes via PUT /api/config take effect immediately
+        let min_edge = {
+            let cfg = state.config.read().unwrap();
+            Decimal::from(cfg.strategy.min_edge_bps)
+        };
         opportunities.retain(|o| o.net_edge_bps() >= min_edge);
         opportunities.sort_by(|a, b| b.net_edge.cmp(&a.net_edge));
+
+        // ── Auto-execute approved opportunities (paper mode) ──
+        for opp in &opportunities {
+            // Risk check (acquire lock briefly, release before async call)
+            let decision = {
+                let rl = state.risk_limits.lock().unwrap();
+                rl.check_opportunity(opp)
+            };
+
+            match decision {
+                Ok(RiskDecision::Approve { max_size: _ }) => {
+                    match executor.execute_opportunity(opp).await {
+                        Ok(report) => {
+                            {
+                                let mut rl = state.risk_limits.lock().unwrap();
+                                rl.record_execution(&report, opp.arb_type);
+                            }
+                            if let Ok(mut history) = state.execution_history.write() {
+                                history.insert(0, report.clone());
+                                history.truncate(500);
+                            }
+                            let _ = broadcast_event(&state, "trade_executed", &report);
+                            info!(
+                                opp_id = %opp.id,
+                                arb_type = %opp.arb_type,
+                                edge = %report.realized_edge,
+                                "Auto-executed paper trade"
+                            );
+                        }
+                        Err(e) => {
+                            debug!(opp_id = %opp.id, error = %e, "Execution failed");
+                        }
+                    }
+                }
+                Ok(RiskDecision::ReduceSize { new_size, .. }) => {
+                    let sized_opp = opp.with_max_size(new_size);
+                    match executor.execute_opportunity(&sized_opp).await {
+                        Ok(report) => {
+                            {
+                                let mut rl = state.risk_limits.lock().unwrap();
+                                rl.record_execution(&report, opp.arb_type);
+                            }
+                            if let Ok(mut history) = state.execution_history.write() {
+                                history.insert(0, report.clone());
+                                history.truncate(500);
+                            }
+                            let _ = broadcast_event(&state, "trade_executed", &report);
+                            info!(
+                                opp_id = %opp.id,
+                                new_size = %new_size,
+                                "Auto-executed paper trade (reduced size)"
+                            );
+                        }
+                        Err(e) => {
+                            debug!(opp_id = %opp.id, error = %e, "Execution failed");
+                        }
+                    }
+                }
+                Ok(RiskDecision::Reject { reason }) => {
+                    debug!(opp_id = %opp.id, reason = %reason, "Opportunity rejected by risk manager");
+                }
+                Err(e) => {
+                    debug!(opp_id = %opp.id, error = %e, "Risk check failed");
+                }
+            }
+        }
 
         // Update shared state BEFORE broadcasting so that when clients receive
         // the WS event and query GET /api/opportunities, the data is already there.
@@ -280,8 +354,8 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                 "daily_pnl": rl.daily_pnl().to_string(),
                 "trade_count": rl.metrics().trade_count(),
                 "current_exposure": rl.current_exposure().to_string(),
-                "peak_equity": "10000",
-                "current_equity": (Decimal::from(10_000) + rl.metrics().total_pnl()).to_string(),
+                "peak_equity": rl.metrics().peak_equity().to_string(),
+                "current_equity": rl.metrics().current_equity().to_string(),
                 "pnl_by_type": {
                     "IntraMarket": rl.metrics().pnl_for_type(ArbType::IntraMarket).to_string(),
                     "CrossMarket": rl.metrics().pnl_for_type(ArbType::CrossMarket).to_string(),

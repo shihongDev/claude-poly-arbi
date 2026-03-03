@@ -29,6 +29,13 @@ pub async fn update_config(
     }
 
     let mut config = state.config.write().unwrap();
-    *config = new_config;
+    *config = new_config.clone();
+    drop(config);
+
+    // Persist to disk so changes survive restarts
+    if let Err(e) = new_config.save() {
+        tracing::warn!(error = %e, "Config updated in-memory but failed to persist to disk");
+    }
+
     (StatusCode::OK, Json(serde_json::json!({"status": "updated"}))).into_response()
 }

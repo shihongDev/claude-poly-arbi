@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arb_core::{
@@ -37,24 +38,232 @@ impl MultiOutcomeDetector {
         }
     }
 
-    /// Group markets by shared event (neg_risk markets sharing the same question prefix).
+    /// Group markets by shared event for multi-outcome arbitrage detection.
     ///
-    /// In Polymarket, multi-outcome events have multiple markets with `neg_risk = true`.
-    /// Each market represents one outcome. We group them by shared condition characteristics.
+    /// Two grouping strategies are used:
+    ///
+    /// 1. **Event-based** (primary): active neg_risk markets with a known `event_id`
+    ///    are grouped by that ID. Each group represents a multi-outcome event where
+    ///    the YES prices across all markets should sum to 1.0.
+    ///
+    /// 2. **Single-market fallback**: active neg_risk markets without an `event_id`
+    ///    but with >2 outcomes are treated as self-contained multi-outcome markets
+    ///    (the original behaviour).
     fn group_by_event<'a>(&self, markets: &'a [Arc<MarketState>]) -> Vec<Vec<&'a MarketState>> {
-        // For now, we check each individual neg_risk market that has >2 outcomes
-        // In reality, multi-outcome events span multiple markets that share an event_id.
-        // Since we don't have event_id in MarketState yet, we treat each neg_risk market
-        // with multiple outcomes as its own group.
-        let mut groups: Vec<Vec<&'a MarketState>> = Vec::new();
+        let mut event_groups: HashMap<&str, Vec<&'a MarketState>> = HashMap::new();
+        let mut standalone_groups: Vec<Vec<&'a MarketState>> = Vec::new();
 
         for market in markets {
-            if market.neg_risk && market.outcomes.len() > 2 && market.active {
-                groups.push(vec![market.as_ref()]);
+            if !market.active || !market.neg_risk {
+                continue;
+            }
+
+            if let Some(ref eid) = market.event_id {
+                event_groups
+                    .entry(eid.as_str())
+                    .or_default()
+                    .push(market.as_ref());
+            } else if market.outcomes.len() > 2 {
+                // Fallback: single market with multiple outcomes but no event_id
+                standalone_groups.push(vec![market.as_ref()]);
             }
         }
 
+        let mut groups: Vec<Vec<&'a MarketState>> = event_groups.into_values().collect();
+        groups.extend(standalone_groups);
         groups
+    }
+
+    /// Check a group of markets sharing the same event_id for cross-market
+    /// multi-outcome arbitrage.
+    ///
+    /// Each market in the group represents one binary outcome of a shared event.
+    /// The first outcome price (YES) of each market should sum to 1.0.
+    /// If the sum of best asks < 1.0, buying all YES tokens is profitable.
+    /// If the sum of best bids > 1.0, selling all YES tokens is profitable.
+    fn check_cross_market_group(&self, group: &[&MarketState]) -> Result<Vec<Opportunity>> {
+        let mut opps = Vec::new();
+        let n = group.len();
+
+        // Need at least one orderbook per market to read best bid/ask
+        let all_have_books = group.iter().all(|m| !m.orderbooks.is_empty());
+        if !all_have_books {
+            return Ok(opps);
+        }
+
+        let market_ids: Vec<String> = group.iter().map(|m| m.condition_id.clone()).collect();
+
+        // ─── Buy-all: sum of first-outcome ask prices ───
+        let ask_prices: Option<Vec<Decimal>> = group
+            .iter()
+            .map(|m| m.orderbooks.first().and_then(|b| b.asks.first()).map(|l| l.price))
+            .collect();
+
+        if let Some(ref asks) = ask_prices {
+            let ask_sum: Decimal = asks.iter().sum();
+
+            if ask_sum < dec!(1.00) - self.config.min_deviation {
+                let gross_edge = dec!(1.00) - ask_sum;
+
+                // Minimum available size across all outcomes
+                let min_ask_size = group
+                    .iter()
+                    .filter_map(|m| m.orderbooks.first())
+                    .map(|b| b.asks.iter().map(|l| l.size).sum::<Decimal>())
+                    .min()
+                    .unwrap_or(Decimal::ZERO);
+
+                let target_size = min_ask_size.min(Decimal::from(500));
+
+                if target_size > Decimal::ZERO {
+                    let mut legs = Vec::with_capacity(n);
+                    let mut vwaps = Vec::with_capacity(n);
+                    let mut all_ok = true;
+
+                    for (i, market) in group.iter().enumerate() {
+                        if let Some(book) = market.orderbooks.first() {
+                            match self.slippage_estimator.estimate_vwap(book, Side::Buy, target_size) {
+                                Ok(v) => {
+                                    vwaps.push(v.vwap);
+                                    legs.push(TradeLeg {
+                                        token_id: market.token_ids.first().cloned().unwrap_or_default(),
+                                        side: Side::Buy,
+                                        target_price: asks[i],
+                                        target_size,
+                                        vwap_estimate: v.vwap,
+                                    });
+                                }
+                                Err(_) => {
+                                    all_ok = false;
+                                    break;
+                                }
+                            }
+                        } else {
+                            all_ok = false;
+                            break;
+                        }
+                    }
+
+                    if all_ok {
+                        let vwap_sum: Decimal = vwaps.iter().sum();
+                        let net_edge = dec!(1.00) - vwap_sum;
+                        let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                        let net_edge_after_fees = net_edge * target_size - fee_estimate;
+                        let net_edge_per_unit = net_edge_after_fees / target_size;
+                        let edge_bps = net_edge_per_unit * Decimal::from(10_000);
+
+                        if edge_bps >= Decimal::from(self.strategy_config.min_edge_bps) {
+                            debug!(
+                                n_markets = n,
+                                gross_edge = %gross_edge,
+                                net_edge = %net_edge_per_unit,
+                                edge_bps = %edge_bps,
+                                "Cross-market multi-outcome buy-all opportunity"
+                            );
+
+                            opps.push(Opportunity {
+                                id: Uuid::new_v4(),
+                                arb_type: ArbType::MultiOutcome,
+                                markets: market_ids.clone(),
+                                legs,
+                                gross_edge,
+                                net_edge: net_edge_per_unit,
+                                estimated_vwap: vwaps,
+                                confidence: 1.0,
+                                size_available: target_size,
+                                detected_at: Utc::now(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─── Sell-all: sum of first-outcome bid prices ───
+        let bid_prices: Option<Vec<Decimal>> = group
+            .iter()
+            .map(|m| m.orderbooks.first().and_then(|b| b.bids.first()).map(|l| l.price))
+            .collect();
+
+        if let Some(ref bids) = bid_prices {
+            let bid_sum: Decimal = bids.iter().sum();
+
+            if bid_sum > dec!(1.00) + self.config.min_deviation {
+                let gross_edge = bid_sum - dec!(1.00);
+
+                let min_bid_size = group
+                    .iter()
+                    .filter_map(|m| m.orderbooks.first())
+                    .map(|b| b.bids.iter().map(|l| l.size).sum::<Decimal>())
+                    .min()
+                    .unwrap_or(Decimal::ZERO);
+
+                let target_size = min_bid_size.min(Decimal::from(500));
+
+                if target_size > Decimal::ZERO {
+                    let mut legs = Vec::with_capacity(n);
+                    let mut vwaps = Vec::with_capacity(n);
+                    let mut all_ok = true;
+
+                    for (i, market) in group.iter().enumerate() {
+                        if let Some(book) = market.orderbooks.first() {
+                            match self.slippage_estimator.estimate_vwap(book, Side::Sell, target_size) {
+                                Ok(v) => {
+                                    vwaps.push(v.vwap);
+                                    legs.push(TradeLeg {
+                                        token_id: market.token_ids.first().cloned().unwrap_or_default(),
+                                        side: Side::Sell,
+                                        target_price: bids[i],
+                                        target_size,
+                                        vwap_estimate: v.vwap,
+                                    });
+                                }
+                                Err(_) => {
+                                    all_ok = false;
+                                    break;
+                                }
+                            }
+                        } else {
+                            all_ok = false;
+                            break;
+                        }
+                    }
+
+                    if all_ok {
+                        let vwap_sum: Decimal = vwaps.iter().sum();
+                        let net_edge = vwap_sum - dec!(1.00);
+                        let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                        let net_edge_after_fees = net_edge * target_size - fee_estimate;
+                        let net_edge_per_unit = net_edge_after_fees / target_size;
+                        let edge_bps = net_edge_per_unit * Decimal::from(10_000);
+
+                        if edge_bps >= Decimal::from(self.strategy_config.min_edge_bps) {
+                            debug!(
+                                n_markets = n,
+                                gross_edge = %gross_edge,
+                                net_edge = %net_edge_per_unit,
+                                "Cross-market multi-outcome sell-all opportunity"
+                            );
+
+                            opps.push(Opportunity {
+                                id: Uuid::new_v4(),
+                                arb_type: ArbType::MultiOutcome,
+                                markets: market_ids,
+                                legs,
+                                gross_edge,
+                                net_edge: net_edge_per_unit,
+                                estimated_vwap: vwaps,
+                                confidence: 1.0,
+                                size_available: target_size,
+                                detected_at: Utc::now(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(opps)
     }
 
     fn check_event_group(&self, outcomes: &[&MarketState]) -> Result<Vec<Opportunity>> {
@@ -269,10 +478,24 @@ impl ArbDetector for MultiOutcomeDetector {
         let mut all_opps = Vec::new();
 
         for group in &groups {
+            if group.len() >= 2 {
+                // Cross-market event group: multiple markets sharing an event_id,
+                // each representing one outcome of a multi-outcome event.
+                match self.check_cross_market_group(group) {
+                    Ok(opps) => all_opps.extend(opps),
+                    Err(e) => {
+                        debug!(error = %e, "Error checking cross-market multi-outcome group");
+                    }
+                }
+            }
+
+            // Always run the single-market check too.
+            // This handles markets with >2 internal outcomes (e.g., a single market
+            // with 3+ tokens) regardless of whether they were grouped by event_id.
             match self.check_event_group(group) {
                 Ok(opps) => all_opps.extend(opps),
                 Err(e) => {
-                    debug!(error = %e, "Error checking multi-outcome group");
+                    debug!(error = %e, "Error checking single-market multi-outcome group");
                 }
             }
         }

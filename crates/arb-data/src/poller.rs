@@ -264,6 +264,15 @@ impl SdkMarketDataSource {
         // outcomes is Option<Vec<String>> — already parsed
         let outcomes: Vec<String> = market.outcomes.clone().unwrap_or_default();
 
+        // Extract event_id from the first associated event, if any.
+        // In Polymarket, multi-outcome events have multiple markets that share
+        // the same parent event — this ID is what lets us group them.
+        let event_id = market
+            .events
+            .as_ref()
+            .and_then(|events| events.first())
+            .map(|e| e.id.clone());
+
         Some(MarketState {
             condition_id,
             question: market.question.clone().unwrap_or_default(),
@@ -283,6 +292,7 @@ impl SdkMarketDataSource {
             end_date_iso: market.end_date_iso.map(|d| d.to_string()),
             slug: market.slug.clone(),
             one_day_price_change: market.one_day_price_change,
+            event_id,
             last_updated_gen: 0,
         })
     }
@@ -506,6 +516,7 @@ mod tests {
             end_date_iso: None,
             slug: None,
             one_day_price_change: None,
+            event_id: None,
             last_updated_gen: 0,
         }
     }

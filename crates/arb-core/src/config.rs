@@ -27,6 +27,8 @@ pub struct GeneralConfig {
     pub log_file: Option<String>,
     #[serde(default)]
     pub state_file: Option<String>,
+    #[serde(default = "default_starting_equity")]
+    pub starting_equity: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +231,9 @@ fn default_drawdown_critical() -> f64 {
 fn default_calibration_interval() -> u64 {
     60
 }
+fn default_starting_equity() -> Decimal {
+    Decimal::from(10_000)
+}
 
 // ─── Load/Save ───────────────────────────────────────────
 
@@ -361,6 +366,7 @@ impl Default for ArbConfig {
                 log_format: default_log_format(),
                 log_file: None,
                 state_file: None,
+                starting_equity: default_starting_equity(),
             },
             polling: PollingConfig {
                 hot_interval_secs: default_hot_interval(),

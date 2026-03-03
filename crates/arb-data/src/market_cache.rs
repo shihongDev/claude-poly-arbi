@@ -131,6 +131,7 @@ mod tests {
             end_date_iso: None,
             slug: None,
             one_day_price_change: None,
+            event_id: None,
             last_updated_gen: 0,
         }
     }

@@ -94,7 +94,7 @@ impl ArbEngine {
         // Executor: paper by default, live requires --live flag
         let executor: Box<dyn TradeExecutor> = Box::new(PaperTradeExecutor::default_pessimism());
 
-        let risk_manager = RiskLimits::new(config.risk.clone(), Decimal::from(10_000));
+        let risk_manager = RiskLimits::new(config.risk.clone(), config.general.starting_equity);
         let monitor = AlertManager::new(config.alerts.clone());
 
         Ok(Self {
