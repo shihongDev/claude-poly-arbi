@@ -105,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let app = Router::new()
+        .route("/api/health", get(routes::health::health_check))
         .route("/api/status", get(routes::status::get_status))
         .route("/api/opportunities", get(routes::opportunities::list))
         .route("/api/positions", get(routes::positions::list))
