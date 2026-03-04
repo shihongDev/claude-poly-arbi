@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use alloy::signers::local::PrivateKeySigner;
 use arb_core::error::{ArbError, Result};
 use polymarket_client_sdk::auth::state::Authenticated;
 use polymarket_client_sdk::auth::{LocalSigner, Normal, Signer as _};
@@ -57,13 +58,17 @@ pub fn resolve_key_path(explicit: Option<&Path>) -> PathBuf {
 
 /// Create an authenticated CLOB client from a private key string.
 ///
+/// Returns both the authenticated client AND the `LocalSigner` used during
+/// authentication. The signer is needed later for `client.sign(&signer, order)`
+/// when placing real orders.
+///
 /// This follows the same pattern as `polymarket-cli-main/src/auth.rs`:
 /// 1. Parse key → `LocalSigner`
 /// 2. Set chain to Polygon mainnet (137)
 /// 3. Authenticate via EIP-712 signature exchange
 pub async fn create_authenticated_client(
     private_key: &str,
-) -> Result<clob::Client<Authenticated<Normal>>> {
+) -> Result<(clob::Client<Authenticated<Normal>>, PrivateKeySigner)> {
     let signer = LocalSigner::from_str(private_key)
         .map_err(|e| ArbError::Config(format!("Invalid private key: {e}")))?
         .with_chain_id(Some(POLYGON));
@@ -79,13 +84,15 @@ pub async fn create_authenticated_client(
         .map_err(|e| ArbError::Execution(format!("CLOB authentication failed: {e}")))?;
 
     info!("Authenticated successfully");
-    Ok(client)
+    Ok((client, signer))
 }
 
 /// Convenience: read key from file and create authenticated client in one step.
+///
+/// Returns both the authenticated client and the `LocalSigner`.
 pub async fn authenticate_from_key_file(
     key_path: Option<&Path>,
-) -> Result<clob::Client<Authenticated<Normal>>> {
+) -> Result<(clob::Client<Authenticated<Normal>>, PrivateKeySigner)> {
     let path = resolve_key_path(key_path);
     let key = read_private_key(&path)?;
     create_authenticated_client(&key).await

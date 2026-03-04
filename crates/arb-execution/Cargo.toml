@@ -10,6 +10,7 @@ description = "Trade execution: slippage estimation, paper trading, and live exe
 arb-core = { workspace = true }
 arb-data = { workspace = true }
 polymarket-client-sdk = { workspace = true }
+alloy = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 rust_decimal = { workspace = true }

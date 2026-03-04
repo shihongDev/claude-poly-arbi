@@ -5,6 +5,7 @@ use arb_core::{
 };
 use async_trait::async_trait;
 use chrono::Utc;
+use alloy::signers::local::PrivateKeySigner;
 use polymarket_client_sdk::auth::Normal;
 use polymarket_client_sdk::auth::state::Authenticated;
 use polymarket_client_sdk::clob;
@@ -16,26 +17,33 @@ use crate::auth;
 
 /// Live trade executor using the Polymarket CLOB API.
 ///
-/// Holds an authenticated `Client<Authenticated<Normal>>` and executes
-/// real orders on Polymarket. Uses limit orders (GTC) when `prefer_post_only`
-/// is set for maker rebates, otherwise uses FOK for immediate fills.
+/// Holds an authenticated `Client<Authenticated<Normal>>` and the `LocalSigner`
+/// used during authentication. Both are needed for live order placement:
+/// the client provides the API, and the signer is required for
+/// `client.sign(&signer, order)` before posting.
+///
+/// Uses limit orders (GTC) when `prefer_post_only` is set for maker rebates,
+/// otherwise uses FOK for immediate fills.
 ///
 /// Safety: requires explicit `--live` flag and is never the default.
 pub struct LiveTradeExecutor {
     clob_client: clob::Client<Authenticated<Normal>>,
+    signer: PrivateKeySigner,
     prefer_post_only: bool,
     order_timeout_secs: u64,
 }
 
 impl LiveTradeExecutor {
-    /// Create from an already-authenticated client.
+    /// Create from an already-authenticated client and its signer.
     pub fn new(
         clob_client: clob::Client<Authenticated<Normal>>,
+        signer: PrivateKeySigner,
         prefer_post_only: bool,
         order_timeout_secs: u64,
     ) -> Self {
         Self {
             clob_client,
+            signer,
             prefer_post_only,
             order_timeout_secs,
         }
@@ -47,8 +55,13 @@ impl LiveTradeExecutor {
         prefer_post_only: bool,
         order_timeout_secs: u64,
     ) -> Result<Self> {
-        let client = auth::authenticate_from_key_file(key_path).await?;
-        Ok(Self::new(client, prefer_post_only, order_timeout_secs))
+        let (client, signer) = auth::authenticate_from_key_file(key_path).await?;
+        Ok(Self::new(client, signer, prefer_post_only, order_timeout_secs))
+    }
+
+    /// Returns a reference to the signer for order signing.
+    pub fn signer(&self) -> &PrivateKeySigner {
+        &self.signer
     }
 
     /// Place a limit order for a single leg.
