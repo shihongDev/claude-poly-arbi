@@ -1,0 +1,23 @@
+[Unit]
+Description=Polymarket Arbitrage Engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arb
+WorkingDirectory=/opt/arb
+ExecStart=/opt/arb/arb-api
+Restart=always
+RestartSec=10
+Environment=RUST_LOG=arb=info
+Environment=POLYMARKET_KEY_FILE=/opt/arb/key.txt
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/arb
+
+[Install]
+WantedBy=multi-user.target
