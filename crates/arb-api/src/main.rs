@@ -17,18 +17,19 @@ use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "arb_api=debug,tower_http=debug".into()),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "arb_api=info,arb_core=info,arb_data=info,arb_execution=info,arb_risk=info,arb_strategy=info,arb_simulation=info,tower_http=debug".into()
+            }),
         )
+        .with(fmt::layer().json())
         .init();
 
     let config = ArbConfig::load();
