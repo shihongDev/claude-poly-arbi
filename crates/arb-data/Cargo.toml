@@ -19,6 +19,9 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 dashmap = { workspace = true }
 thiserror = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 rust_decimal_macros = { workspace = true }

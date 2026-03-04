@@ -62,6 +62,11 @@ anyhow = "1"
 dashmap = "6"
 dirs = "6"
 
+# WebSocket & networking
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+url = "2"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
