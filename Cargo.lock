@@ -793,6 +793,7 @@ dependencies = [
 name = "arb-execution"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "arb-core",
  "arb-data",
  "async-trait",
