@@ -125,6 +125,11 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/sandbox/detect", post(routes::sandbox::detect))
         .route("/api/sandbox/backtest", post(routes::sandbox::backtest))
+        .route("/api/stress-test", post(routes::stress::run_stress_test))
+        .route(
+            "/api/simulation/status",
+            get(routes::stress::simulation_status),
+        )
         .route("/ws", get(ws::ws_handler))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
