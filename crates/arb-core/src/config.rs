@@ -152,6 +152,12 @@ pub struct AlertsConfig {
     pub drawdown_critical_pct: f64,
     #[serde(default = "default_calibration_interval")]
     pub calibration_check_interval_mins: u64,
+    #[serde(default)]
+    pub discord_webhook_url: Option<String>,
+    #[serde(default)]
+    pub telegram_bot_token: Option<String>,
+    #[serde(default)]
+    pub telegram_chat_id: Option<String>,
 }
 
 // ─── Defaults ────────────────────────────────────────────
@@ -406,6 +412,9 @@ impl Default for ArbConfig {
                 drawdown_warning_pct: default_drawdown_warning(),
                 drawdown_critical_pct: default_drawdown_critical(),
                 calibration_check_interval_mins: default_calibration_interval(),
+                discord_webhook_url: None,
+                telegram_bot_token: None,
+                telegram_chat_id: None,
             },
         }
     }
