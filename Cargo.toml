@@ -30,7 +30,7 @@ arb-monitor = { path = "crates/arb-monitor" }
 
 # Polymarket SDK
 polymarket-client-sdk = { version = "0.4", features = ["gamma", "data", "clob", "ctf"] }
-alloy = { version = "1", default-features = false, features = ["signer-local"] }
+alloy = { version = "1", default-features = false, features = ["signer-local", "provider-http", "network"] }
 
 # Async
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }

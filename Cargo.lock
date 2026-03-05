@@ -811,6 +811,7 @@ name = "arb-execution"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "anyhow",
  "arb-core",
  "arb-data",
  "async-trait",
