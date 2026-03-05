@@ -27,6 +27,8 @@ pub struct GeneralConfig {
     pub log_file: Option<String>,
     #[serde(default)]
     pub state_file: Option<String>,
+    #[serde(default)]
+    pub key_file: Option<String>,
     #[serde(default = "default_starting_equity")]
     pub starting_equity: Decimal,
 }
@@ -135,6 +137,8 @@ pub struct RiskConfig {
     pub daily_loss_limit: Decimal,
     #[serde(default = "default_max_open_orders")]
     pub max_open_orders: usize,
+    #[serde(default = "default_order_timeout_secs")]
+    pub order_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +234,9 @@ fn default_daily_loss_limit() -> Decimal {
 }
 fn default_max_open_orders() -> usize {
     20
+}
+fn default_order_timeout_secs() -> u64 {
+    30
 }
 fn default_mc_paths() -> usize {
     10_000
@@ -381,6 +388,7 @@ impl Default for ArbConfig {
                 log_format: default_log_format(),
                 log_file: None,
                 state_file: None,
+                key_file: None,
                 starting_equity: default_starting_equity(),
             },
             polling: PollingConfig {
@@ -410,6 +418,7 @@ impl Default for ArbConfig {
                 max_total_exposure: default_max_total_exposure(),
                 daily_loss_limit: default_daily_loss_limit(),
                 max_open_orders: default_max_open_orders(),
+                order_timeout_secs: default_order_timeout_secs(),
             },
             simulation: SimulationConfig {
                 monte_carlo_paths: default_mc_paths(),
