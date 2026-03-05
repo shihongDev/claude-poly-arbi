@@ -65,6 +65,11 @@ dirs = "6"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 
+# WebSocket & networking
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+url = "2"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
