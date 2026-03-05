@@ -7,6 +7,7 @@ import { MetricCard } from "@/components/metric-card";
 import { PnlChart } from "@/components/pnl-chart";
 import { RiskGauge } from "@/components/risk-gauge";
 import { DataTable, type Column } from "@/components/data-table";
+import { SimulationStatusPanel } from "@/components/simulation-status";
 import {
   formatUsd,
   formatPnl,
@@ -696,6 +697,9 @@ export default function PortfolioPage() {
           )}
         </ChartPanel>
       </div>
+
+      {/* Section 5: Simulation Engine Status */}
+      <SimulationStatusPanel />
     </div>
   );
 }

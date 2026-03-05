@@ -1,6 +1,9 @@
 pub mod agent_model;
+pub mod convergence;
 pub mod copula;
+pub mod estimator;
 pub mod importance_sampling;
+pub mod jump_diffusion;
 pub mod monte_carlo;
 pub mod particle_filter;
 pub mod variance_reduction;

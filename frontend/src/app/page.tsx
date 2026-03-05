@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
   Search,
   ArrowUpRight,
@@ -10,6 +11,7 @@ import {
   Activity,
   Target,
   TrendingUp,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useDashboardStore } from "@/store";
 import { DataTable, type Column } from "@/components/data-table";
@@ -17,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -28,15 +31,55 @@ import {
   formatUsd,
   formatSpreadBps,
   formatPriceChange,
-  formatEndDate,
+  formatCents,
+  truncate,
+  spreadColorClass,
   cn,
+  MONO_STYLE,
 } from "@/lib/utils";
 import type { MarketState } from "@/lib/types";
 
-function truncateQuestion(question: string, max = 55): string {
-  if (question.length <= max) return question;
-  return question.slice(0, max) + "\u2026";
-}
+// New components
+import { MarketHealthBadge } from "@/components/market-health-badge";
+import { LiquidityDepthBar } from "@/components/liquidity-depth-bar";
+import { OrderImbalanceArrow } from "@/components/order-imbalance-arrow";
+import { ExpiryProgressBar } from "@/components/expiry-progress-bar";
+import { ProbSumBadge } from "@/components/prob-sum-badge";
+import { ArbOpportunityBadge } from "@/components/arb-opportunity-badge";
+import { HotMarketsCarousel } from "@/components/hot-markets-carousel";
+import { SpreadHistogram } from "@/components/spread-histogram";
+import { ProbabilityStackedBar } from "@/components/probability-stacked-bar";
+import {
+  useWatchlist,
+  WatchlistStar,
+  WatchlistSection,
+} from "@/components/market-watchlist";
+import { EventGroupTable } from "@/components/event-group-table";
+import { ViewModeToggle } from "@/components/view-mode-toggle";
+import { MarketCardGrid } from "@/components/market-card-grid";
+import {
+  AdvancedFilterPanel,
+  DEFAULT_FILTERS,
+} from "@/components/advanced-filter-panel";
+
+const MarketTreemap = dynamic(
+  () =>
+    import("@/components/market-treemap").then((mod) => ({
+      default: mod.MarketTreemap,
+    })),
+  { ssr: false }
+);
+const SpreadVolumeScatter = dynamic(
+  () =>
+    import("@/components/spread-volume-scatter").then((mod) => ({
+      default: mod.SpreadVolumeScatter,
+    })),
+  { ssr: false }
+);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 type SortField = "volume" | "liquidity" | "spread" | "change";
 
@@ -60,6 +103,10 @@ interface EnrichedMarket extends MarketState {
   positionSize: number;
 }
 
+// ---------------------------------------------------------------------------
+// Stat Card
+// ---------------------------------------------------------------------------
+
 function StatCard({
   label,
   value,
@@ -79,7 +126,7 @@ function StatCard({
       </div>
       <p
         className="mt-1 text-lg font-semibold text-[#1A1A19]"
-        style={{ fontFamily: "var(--font-jetbrains-mono)" }}
+        style={MONO_STYLE}
       >
         {value}
       </p>
@@ -87,135 +134,140 @@ function StatCard({
   );
 }
 
-const MARKET_COLUMNS: Column<EnrichedMarket>[] = [
-  {
-    key: "question",
-    header: "Question",
-    sortable: false,
-    render: (row) => (
-      <div className="flex items-center gap-2">
-        {row.oppCount > 0 && (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#2D6A4F]" />
-        )}
-        <span className="text-[#1A1A19]" title={row.question}>
-          {truncateQuestion(row.question)}
-        </span>
-      </div>
-    ),
-  },
-  {
-    key: "price",
-    header: "Price",
-    sortable: true,
-    mono: true,
-    render: (row) => {
-      const price = row.outcome_prices[0]
-        ? parseFloat(row.outcome_prices[0])
-        : null;
-      if (price === null) return <span className="text-[#9B9B9B]">&mdash;</span>;
-      return (
-        <span className="text-[#1A1A19]">
-          {(price * 100).toFixed(0)}&cent;
-        </span>
-      );
+// ---------------------------------------------------------------------------
+// Enhanced Table Columns
+// ---------------------------------------------------------------------------
+
+function buildColumns(): Column<EnrichedMarket>[] {
+  return [
+    {
+      key: "star",
+      header: "",
+      sortable: false,
+      render: (row) => <WatchlistStar conditionId={row.condition_id} />,
     },
-    getValue: (row) =>
-      row.outcome_prices[0] ? parseFloat(row.outcome_prices[0]) : 0,
-  },
-  {
-    key: "change",
-    header: "24h",
-    sortable: true,
-    mono: true,
-    render: (row) => {
-      const { text, positive } = formatPriceChange(row.one_day_price_change);
-      if (positive === null)
-        return <span className="text-[#9B9B9B]">{text}</span>;
-      return (
-        <span
-          className={cn(
-            "inline-flex items-center gap-0.5",
-            positive ? "text-[#2D6A4F]" : "text-[#B44C3F]"
-          )}
-        >
-          {positive ? (
-            <ArrowUpRight className="h-3 w-3" />
-          ) : (
-            <ArrowDownRight className="h-3 w-3" />
-          )}
-          {text}
-        </span>
-      );
-    },
-    getValue: (row) =>
-      row.one_day_price_change ? parseFloat(row.one_day_price_change) : 0,
-  },
-  {
-    key: "spread",
-    header: "Spread",
-    sortable: true,
-    mono: true,
-    render: (row) => {
-      const spreadStr = formatSpreadBps(row.spread);
-      if (!row.spread)
-        return <span className="text-[#9B9B9B]">{spreadStr}</span>;
-      const bps = parseFloat(row.spread) * 10000;
-      const color =
-        bps < 30
-          ? "text-[#2D6A4F]"
-          : bps < 100
-            ? "text-[#B8860B]"
-            : "text-[#B44C3F]";
-      return <span className={color}>{spreadStr}</span>;
-    },
-    getValue: (row) => (row.spread ? parseFloat(row.spread) : 999),
-  },
-  {
-    key: "volume_24hr",
-    header: "Volume 24h",
-    sortable: true,
-    mono: true,
-    render: (row) => (
-      <span className="text-[#1A1A19]">{formatUsd(row.volume_24hr)}</span>
-    ),
-    getValue: (row) =>
-      row.volume_24hr ? parseFloat(row.volume_24hr) : 0,
-  },
-  {
-    key: "liquidity",
-    header: "Liquidity",
-    sortable: true,
-    mono: true,
-    render: (row) => (
-      <span className="text-[#1A1A19]">{formatUsd(row.liquidity)}</span>
-    ),
-    getValue: (row) =>
-      row.liquidity ? parseFloat(row.liquidity) : 0,
-  },
-  {
-    key: "end_date",
-    header: "End Date",
-    sortable: true,
-    render: (row) => (
-      <span className="text-[#6B6B6B] text-xs">
-        {formatEndDate(row.end_date_iso)}
-      </span>
-    ),
-    getValue: (row) =>
-      row.end_date_iso ? new Date(row.end_date_iso).getTime() : 0,
-  },
-  {
-    key: "book",
-    header: "Book",
-    sortable: false,
-    render: (row) =>
-      row.orderbooks.length > 0 ? (
-        <Badge className="bg-[#DAE9E0] text-[#2D6A4F] text-[10px]">Yes</Badge>
-      ) : (
-        <Badge className="bg-[#F0EEEA] text-[#9B9B9B] text-[10px]">No</Badge>
+    {
+      key: "question",
+      header: "Question",
+      sortable: false,
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <ArbOpportunityBadge count={row.oppCount} />
+          <ProbSumBadge market={row} />
+          <span className="text-[#1A1A19]" title={row.question}>
+            {truncate(row.question, 55)}
+          </span>
+        </div>
       ),
-  },
-];
+    },
+    {
+      key: "price",
+      header: "Price",
+      sortable: true,
+      mono: true,
+      render: (row) => {
+        const isMulti = row.outcomes.length > 2;
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="text-[#1A1A19]">
+              {formatCents(row.outcome_prices[0] ?? null)}
+            </span>
+            {isMulti && (
+              <ProbabilityStackedBar
+                outcomes={row.outcomes}
+                prices={row.outcome_prices}
+              />
+            )}
+          </div>
+        );
+      },
+      getValue: (row) =>
+        row.outcome_prices[0] ? parseFloat(row.outcome_prices[0]) : 0,
+    },
+    {
+      key: "change",
+      header: "24h",
+      sortable: true,
+      mono: true,
+      render: (row) => {
+        const { text, positive } = formatPriceChange(row.one_day_price_change);
+        return (
+          <div className="flex items-center gap-1.5">
+            {positive === null ? (
+              <span className="text-[#9B9B9B]">{text}</span>
+            ) : (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-0.5",
+                  positive ? "text-[#2D6A4F]" : "text-[#B44C3F]"
+                )}
+              >
+                {positive ? (
+                  <ArrowUpRight className="h-3 w-3" />
+                ) : (
+                  <ArrowDownRight className="h-3 w-3" />
+                )}
+                {text}
+              </span>
+            )}
+            <OrderImbalanceArrow market={row} />
+          </div>
+        );
+      },
+      getValue: (row) =>
+        row.one_day_price_change ? parseFloat(row.one_day_price_change) : 0,
+    },
+    {
+      key: "spread",
+      header: "Spread",
+      sortable: true,
+      mono: true,
+      render: (row) => {
+        const spreadStr = formatSpreadBps(row.spread);
+        if (!row.spread)
+          return <span className="text-[#9B9B9B]">{spreadStr}</span>;
+        const bps = parseFloat(row.spread) * 10000;
+        return <span className={spreadColorClass(bps)}>{spreadStr}</span>;
+      },
+      getValue: (row) => (row.spread ? parseFloat(row.spread) : 999),
+    },
+    {
+      key: "depth",
+      header: "Depth",
+      sortable: false,
+      render: (row) => <LiquidityDepthBar market={row} />,
+    },
+    {
+      key: "volume_24hr",
+      header: "Volume",
+      sortable: true,
+      mono: true,
+      render: (row) => (
+        <span className="text-[#1A1A19]">{formatUsd(row.volume_24hr)}</span>
+      ),
+      getValue: (row) =>
+        row.volume_24hr ? parseFloat(row.volume_24hr) : 0,
+    },
+    {
+      key: "health",
+      header: "Health",
+      sortable: false,
+      render: (row) => <MarketHealthBadge market={row} />,
+    },
+    {
+      key: "expiry",
+      header: "Expiry",
+      sortable: true,
+      render: (row) => <ExpiryProgressBar market={row} />,
+      getValue: (row) =>
+        row.end_date_iso ? new Date(row.end_date_iso).getTime() : Infinity,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Page Component
+// ---------------------------------------------------------------------------
 
 export default function MarketsPage() {
   const markets = useDashboardStore((s) => s.markets);
@@ -224,9 +276,17 @@ export default function MarketsPage() {
   const wsStatus = useDashboardStore((s) => s.wsStatus);
   const marketsLoading = useDashboardStore((s) => s.marketsLoading);
   const router = useRouter();
+  const { watchlist } = useWatchlist();
 
-  const isLoading = markets.length === 0 && (marketsLoading || wsStatus === "connecting");
+  const isLoading =
+    markets.length === 0 && (marketsLoading || wsStatus === "connecting");
 
+  // View & filter state
+  const [viewMode, setViewMode] = useState<"table" | "cards" | "treemap">(
+    "table"
+  );
+  const [showGrouped, setShowGrouped] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
   const [hasOrderbooks, setHasOrderbooks] = useState(false);
@@ -349,38 +409,70 @@ export default function MarketsPage() {
     [router]
   );
 
+  const handleMarketClick = useCallback(
+    (conditionId: string) => {
+      router.push(`/markets/${conditionId}`);
+    },
+    [router]
+  );
+
+  const columns = useMemo(() => buildColumns(), []);
+
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-[#1A1A19]">Markets</h1>
-        <p className="mt-1 text-sm text-[#6B6B6B]">
-          Browse and inspect Polymarket prediction markets
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[#1A1A19]">Markets</h1>
+          <p className="mt-1 text-sm text-[#6B6B6B]">
+            Browse and inspect Polymarket prediction markets
+          </p>
+        </div>
+        <ViewModeToggle mode={viewMode} onChange={setViewMode} />
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Total Markets" value={stats.total} icon={BarChart3} />
-        <StatCard
-          label="With Orderbooks"
-          value={stats.withBooks}
-          icon={Activity}
+      {/* Watchlist */}
+      {watchlist.size > 0 && <WatchlistSection markets={markets} />}
+
+      {/* Hot Markets Carousel */}
+      {!isLoading && markets.length > 0 && (
+        <HotMarketsCarousel
+          markets={markets}
+          opportunityCounts={oppsByMarket}
         />
-        <StatCard
-          label="Avg Spread"
-          value={
-            stats.avgSpread !== null
-              ? formatSpreadBps(stats.avgSpread)
-              : "\u2014"
-          }
-          icon={Target}
-        />
-        <StatCard
-          label="Tight Spread (<50bps)"
-          value={stats.tightSpread}
-          icon={TrendingUp}
-        />
+      )}
+
+      {/* Summary stats + Spread Histogram */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 lg:col-span-2">
+          <StatCard
+            label="Total Markets"
+            value={stats.total}
+            icon={BarChart3}
+          />
+          <StatCard
+            label="With Orderbooks"
+            value={stats.withBooks}
+            icon={Activity}
+          />
+          <StatCard
+            label="Avg Spread"
+            value={
+              stats.avgSpread !== null
+                ? formatSpreadBps(stats.avgSpread)
+                : "\u2014"
+            }
+            icon={Target}
+          />
+          <StatCard
+            label="Tight Spread (<50bps)"
+            value={stats.tightSpread}
+            icon={TrendingUp}
+          />
+        </div>
+        {!isLoading && markets.length > 0 && (
+          <SpreadHistogram markets={markets} />
+        )}
       </div>
 
       {/* Filter bar */}
@@ -424,6 +516,22 @@ export default function MarketsPage() {
             </Label>
           </div>
 
+          {viewMode === "table" && (
+            <div className="flex items-center gap-2">
+              <Switch
+                id="group-events"
+                checked={showGrouped}
+                onCheckedChange={setShowGrouped}
+              />
+              <Label
+                htmlFor="group-events"
+                className="text-sm text-[#6B6B6B] cursor-pointer"
+              >
+                Group Events
+              </Label>
+            </div>
+          )}
+
           <Select value={minVolume} onValueChange={setMinVolume}>
             <SelectTrigger size="sm" className="w-[100px]">
               <SelectValue placeholder="Min Vol" />
@@ -453,18 +561,28 @@ export default function MarketsPage() {
             </SelectContent>
           </Select>
 
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFilterOpen(true)}
+            className="text-[#6B6B6B] hover:text-[#1A1A19]"
+          >
+            <SlidersHorizontal className="mr-1 h-3.5 w-3.5" />
+            Filters
+          </Button>
+
           <span
             className="text-xs text-[#9B9B9B]"
-            style={{ fontFamily: "var(--font-jetbrains-mono)" }}
+            style={MONO_STYLE}
           >
             {filteredMarkets.length} of {markets.length}
           </span>
         </div>
       </div>
 
-      {/* Markets table */}
-      <div className="rounded-2xl bg-white">
-        {isLoading ? (
+      {/* Main content — view-dependent */}
+      {isLoading ? (
+        <div className="rounded-2xl bg-white">
           <div className="space-y-3 p-6">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 animate-pulse">
@@ -478,19 +596,62 @@ export default function MarketsPage() {
               Loading markets from Polymarket...
             </p>
           </div>
-        ) : markets.length === 0 ? (
+        </div>
+      ) : markets.length === 0 ? (
+        <div className="rounded-2xl bg-white">
           <div className="flex h-[300px] items-center justify-center text-sm text-[#9B9B9B]">
             No markets loaded
           </div>
+        </div>
+      ) : viewMode === "table" ? (
+        showGrouped ? (
+          <div className="rounded-2xl bg-white">
+            <EventGroupTable
+              markets={filteredMarkets}
+              opportunityCounts={oppsByMarket}
+              onRowClick={handleMarketClick}
+            />
+          </div>
         ) : (
-          <DataTable
-            columns={MARKET_COLUMNS}
-            data={filteredMarkets}
-            pageSize={20}
-            onRowClick={handleRowClick}
-          />
-        )}
-      </div>
+          <div className="rounded-2xl bg-white">
+            <DataTable
+              columns={columns}
+              data={filteredMarkets}
+              pageSize={20}
+              onRowClick={handleRowClick}
+            />
+          </div>
+        )
+      ) : viewMode === "cards" ? (
+        <MarketCardGrid
+          markets={filteredMarkets}
+          opportunityCounts={oppsByMarket}
+          onMarketClick={handleMarketClick}
+        />
+      ) : (
+        <MarketTreemap
+          markets={filteredMarkets}
+          onMarketClick={handleMarketClick}
+        />
+      )}
+
+      {/* Analytics section — Scatter plot */}
+      {!isLoading && markets.length > 5 && (
+        <SpreadVolumeScatter
+          markets={filteredMarkets}
+          onMarketClick={handleMarketClick}
+        />
+      )}
+
+      {/* Advanced filter panel */}
+      <AdvancedFilterPanel
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        filters={{ ...DEFAULT_FILTERS, activeOnly, search }}
+        onFiltersChange={() => {}}
+        marketCount={filteredMarkets.length}
+        totalCount={markets.length}
+      />
     </div>
   );
 }

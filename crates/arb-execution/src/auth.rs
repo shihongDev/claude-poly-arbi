@@ -10,7 +10,7 @@ use polymarket_client_sdk::{POLYGON, clob};
 use tracing::info;
 
 /// Default location for the private key file, relative to workspace root.
-const DEFAULT_KEY_FILE: &str = "key.txt";
+const DEFAULT_KEY_FILE: &str = "secrets/key.txt";
 
 /// Read a private key from a file, trimming whitespace.
 ///
@@ -43,7 +43,7 @@ pub fn read_private_key(path: &Path) -> Result<String> {
 /// Resolve the key file path. Checks, in order:
 /// 1. Explicit path if provided
 /// 2. `POLYMARKET_KEY_FILE` env var
-/// 3. `key.txt` in the current directory
+/// 3. `secrets/key.txt` in the current directory
 pub fn resolve_key_path(explicit: Option<&Path>) -> PathBuf {
     if let Some(p) = explicit {
         return p.to_path_buf();
@@ -181,6 +181,6 @@ mod tests {
         // SAFETY: Only called in single-threaded test context.
         unsafe { std::env::remove_var("POLYMARKET_KEY_FILE") };
         let p = resolve_key_path(None);
-        assert_eq!(p, PathBuf::from("key.txt"));
+        assert_eq!(p, PathBuf::from("secrets/key.txt"));
     }
 }

@@ -83,6 +83,10 @@ pub struct CrossMarketConfig {
     pub correlation_file: Option<String>,
     #[serde(default = "default_cross_min_edge")]
     pub min_implied_edge: Decimal,
+    /// When true, use t-copula tail dependence to adjust confidence on cross-market
+    /// opportunities. High tail dependence -> higher confidence; low -> penalized.
+    #[serde(default)]
+    pub use_copula_correlations: bool,
 }
 
 impl Default for CrossMarketConfig {
@@ -90,6 +94,7 @@ impl Default for CrossMarketConfig {
         Self {
             correlation_file: None,
             min_implied_edge: default_cross_min_edge(),
+            use_copula_correlations: false,
         }
     }
 }
@@ -142,6 +147,10 @@ pub struct SimulationConfig {
     pub particle_count: usize,
     #[serde(default)]
     pub variance_reduction: Vec<String>,
+    /// When true, the engine loop runs the EnsembleEstimator on each opportunity
+    /// and populates `Opportunity.confidence` with a calibrated probability.
+    #[serde(default)]
+    pub probability_estimation_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,19 +196,19 @@ fn default_warm_volume_threshold() -> u64 {
     10_000
 }
 fn default_min_edge_bps() -> u64 {
-    50
+    5
 }
 fn default_true() -> bool {
     true
 }
 fn default_intra_min_deviation() -> Decimal {
-    Decimal::new(5, 3) // 0.005
+    Decimal::new(1, 3) // 0.001
 }
 fn default_cross_min_edge() -> Decimal {
     Decimal::new(2, 2) // 0.02
 }
 fn default_multi_min_deviation() -> Decimal {
-    Decimal::new(1, 2) // 0.01
+    Decimal::new(3, 3) // 0.003
 }
 fn default_max_slippage_bps() -> u64 {
     100
@@ -407,6 +416,7 @@ impl Default for ArbConfig {
                 importance_sampling_enabled: false,
                 particle_count: default_particle_count(),
                 variance_reduction: vec!["antithetic".into()],
+                probability_estimation_enabled: false,
             },
             alerts: AlertsConfig {
                 drawdown_warning_pct: default_drawdown_warning(),

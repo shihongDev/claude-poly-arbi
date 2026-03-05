@@ -194,8 +194,8 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# Private keys — NEVER commit
-key.txt
+# Private keys & secrets — NEVER commit
+secrets/
 *.key
 *.pem
 

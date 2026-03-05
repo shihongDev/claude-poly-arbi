@@ -92,6 +92,35 @@ impl EdgeCalculator {
     pub fn structural_edge(&self, price_sum: Decimal, target: Decimal) -> Decimal {
         (price_sum - target).abs()
     }
+
+    /// Compute probability-weighted expected edge.
+    ///
+    /// A quant desk doesn't just look at raw edge — it weights by the probability
+    /// of realization. A 200bps edge with 90% confidence beats a 300bps edge at 40%.
+    ///
+    /// Formula: `expected_edge = net_edge × confidence − net_edge × (1 − confidence) × loss_factor`
+    ///
+    /// `loss_factor` accounts for adverse selection when the edge doesn't materialize
+    /// (typically you lose more than the edge when wrong, due to fees + slippage).
+    pub fn confidence_adjusted_edge(
+        net_edge: Decimal,
+        confidence: f64,
+        loss_factor: f64,
+    ) -> Decimal {
+        let conf = Decimal::try_from(confidence).unwrap_or(dec!(0.5));
+        let loss = Decimal::try_from(loss_factor).unwrap_or(dec!(1.5));
+        net_edge * conf - net_edge * (Decimal::ONE - conf) * loss
+    }
+
+    /// Confidence-adjusted edge in basis points.
+    pub fn confidence_adjusted_edge_bps(
+        net_edge: Decimal,
+        confidence: f64,
+        loss_factor: f64,
+    ) -> Decimal {
+        Self::confidence_adjusted_edge(net_edge, confidence, loss_factor)
+            * Decimal::from(10_000)
+    }
 }
 
 #[cfg(test)]
@@ -140,5 +169,38 @@ mod tests {
         let calc = default_calc();
         assert_eq!(calc.structural_edge(dec!(0.97), dec!(1.00)), dec!(0.03));
         assert_eq!(calc.structural_edge(dec!(1.03), dec!(1.00)), dec!(0.03));
+    }
+
+    #[test]
+    fn test_confidence_adjusted_edge_high_confidence() {
+        // 200bps edge, 90% confidence, 1.5x loss factor
+        let adj = EdgeCalculator::confidence_adjusted_edge(dec!(0.02), 0.9, 1.5);
+        // expected = 0.02 * 0.9 - 0.02 * 0.1 * 1.5 = 0.018 - 0.003 = 0.015
+        assert!(adj > Decimal::ZERO, "High confidence should be profitable: {adj}");
+        assert!((adj - dec!(0.015)).abs() < dec!(0.001));
+    }
+
+    #[test]
+    fn test_confidence_adjusted_edge_low_confidence() {
+        // 200bps edge, 30% confidence, 1.5x loss factor
+        let adj = EdgeCalculator::confidence_adjusted_edge(dec!(0.02), 0.3, 1.5);
+        // expected = 0.02 * 0.3 - 0.02 * 0.7 * 1.5 = 0.006 - 0.021 = -0.015
+        assert!(adj < Decimal::ZERO, "Low confidence should be negative: {adj}");
+    }
+
+    #[test]
+    fn test_confidence_adjusted_edge_breakeven() {
+        // At what confidence does edge break even?
+        // 0 = net_edge * c - net_edge * (1-c) * loss_factor
+        // c = loss_factor / (1 + loss_factor) = 1.5 / 2.5 = 0.6
+        let adj = EdgeCalculator::confidence_adjusted_edge(dec!(0.02), 0.6, 1.5);
+        assert!(adj.abs() < dec!(0.001), "Should be near zero at breakeven: {adj}");
+    }
+
+    #[test]
+    fn test_confidence_adjusted_edge_bps() {
+        let bps = EdgeCalculator::confidence_adjusted_edge_bps(dec!(0.02), 0.9, 1.5);
+        // 0.015 * 10000 = 150 bps
+        assert!((bps - dec!(150)).abs() < dec!(10));
     }
 }

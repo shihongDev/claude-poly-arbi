@@ -1,11 +1,14 @@
+use std::str::FromStr;
+
 use arb_core::{
     ExecutionReport, FillStatus, LegReport, Opportunity, Side, TradingMode,
     error::{ArbError, Result},
     traits::TradeExecutor,
 };
+use alloy::primitives::U256;
+use alloy::signers::local::PrivateKeySigner;
 use async_trait::async_trait;
 use chrono::Utc;
-use alloy::signers::local::PrivateKeySigner;
 use polymarket_client_sdk::auth::Normal;
 use polymarket_client_sdk::auth::state::Authenticated;
 use polymarket_client_sdk::clob;
@@ -64,14 +67,16 @@ impl LiveTradeExecutor {
         &self.signer
     }
 
-    /// Place a limit order for a single leg.
+    /// Place a limit order for a single leg via the Polymarket CLOB SDK.
+    ///
+    /// Flow: parse token_id -> build limit order -> sign -> post -> map response.
     async fn execute_leg(&self, leg: &arb_core::TradeLeg) -> Result<LegReport> {
-        let _side = match leg.side {
+        let sdk_side = match leg.side {
             Side::Buy => polymarket_client_sdk::clob::types::Side::Buy,
             Side::Sell => polymarket_client_sdk::clob::types::Side::Sell,
         };
 
-        let _order_type = if self.prefer_post_only {
+        let order_type = if self.prefer_post_only {
             polymarket_client_sdk::clob::types::OrderType::GTC
         } else {
             polymarket_client_sdk::clob::types::OrderType::FOK
@@ -86,24 +91,85 @@ impl LiveTradeExecutor {
             "Placing live order"
         );
 
-        // TODO: Place actual order via SDK once order request builder API is finalized.
-        // The SDK order flow is:
-        //   self.clob_client.create_and_post_order(CreateOrderOptions { ... }).await
-        //
-        // For now, log the intent and return a simulated fill.
-        // This is the last stub — the auth is real, the order placement needs
-        // the exact SDK order builder API which varies by version.
-        warn!("Order placement stub — auth is live but order API not yet wired");
+        // Parse the string token_id into the SDK's U256 type
+        let token_id = U256::from_str(&leg.token_id)
+            .map_err(|e| ArbError::Execution(format!("Invalid token ID '{}': {e}", leg.token_id)))?;
+
+        // Build the limit order
+        let order = self
+            .clob_client
+            .limit_order()
+            .token_id(token_id)
+            .side(sdk_side)
+            .price(leg.vwap_estimate)
+            .size(leg.target_size)
+            .order_type(order_type)
+            .build()
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to build order: {e}")))?;
+
+        // Sign the order with our private key
+        let signed = self
+            .clob_client
+            .sign(&self.signer, order)
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to sign order: {e}")))?;
+
+        // Post the signed order to the CLOB API
+        let response = self
+            .clob_client
+            .post_order(signed)
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to post order: {e}")))?;
+
+        info!(
+            order_id = %response.order_id,
+            success = response.success,
+            status = %response.status,
+            "Order posted"
+        );
+
+        // Map SDK response to our LegReport
+        let status = if response.success {
+            FillStatus::FullyFilled
+        } else {
+            warn!(
+                order_id = %response.order_id,
+                error = ?response.error_msg,
+                "Order was not successful"
+            );
+            FillStatus::Rejected
+        };
+
+        // The taking_amount represents what we received (the fill price * size).
+        // For a successful fill, approximate fill price from taking/making amounts.
+        let actual_fill_price = if response.success && response.taking_amount > Decimal::ZERO {
+            // taking_amount / making_amount gives effective price for buys;
+            // for sells it's making_amount / taking_amount.
+            // Fall back to our VWAP estimate if amounts are zero.
+            match leg.side {
+                Side::Buy => response.taking_amount / response.making_amount,
+                Side::Sell => response.making_amount / response.taking_amount,
+            }
+        } else {
+            leg.vwap_estimate
+        };
+
+        let filled_size = if response.success {
+            leg.target_size
+        } else {
+            Decimal::ZERO
+        };
 
         Ok(LegReport {
-            order_id: uuid::Uuid::new_v4().to_string(),
+            order_id: response.order_id,
             token_id: leg.token_id.clone(),
             condition_id: String::new(),
             side: leg.side,
             expected_vwap: leg.vwap_estimate,
-            actual_fill_price: leg.vwap_estimate,
-            filled_size: leg.target_size,
-            status: FillStatus::FullyFilled,
+            actual_fill_price,
+            filled_size,
+            status,
         })
     }
 }

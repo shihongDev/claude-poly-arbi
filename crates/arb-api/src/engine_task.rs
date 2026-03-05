@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arb_core::config::ArbConfig;
-use arb_core::traits::{ArbDetector, MarketDataSource, RiskManager, SlippageEstimator, TradeExecutor};
+use arb_core::traits::{ArbDetector, MarketDataSource, ProbabilityEstimator, RiskManager, SlippageEstimator, TradeExecutor};
 use arb_core::types::{ArbType, RiskDecision};
 use arb_execution::paper_trade::PaperTradeExecutor;
 use arb_data::correlation::CorrelationGraph;
@@ -15,7 +15,9 @@ use arb_data::orderbook::OrderbookProcessor;
 use arb_data::poller::{
     ConcurrentFetchConfig, MarketPoller, SdkMarketDataSource, classify_markets,
 };
+use arb_data::price_history::PriceHistoryStore;
 use arb_data::vwap_cache::CachedSlippageEstimator;
+use arb_simulation::estimator::EnsembleEstimator;
 use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
@@ -97,6 +99,27 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     }
 
     let edge_calculator = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
+
+    // Probability estimator (ensemble of MC + particle filter)
+    let prob_estimator = EnsembleEstimator::from_config(
+        config.simulation.monte_carlo_paths,
+        config.simulation.particle_count,
+    );
+    let prob_estimation_enabled = config.simulation.probability_estimation_enabled;
+
+    // Historical price store (SQLite, append-only)
+    let price_store = match PriceHistoryStore::open(
+        &ArbConfig::config_dir().join("price_history.db"),
+    ) {
+        Ok(store) => {
+            info!("Engine: price history store opened");
+            Some(store)
+        }
+        Err(e) => {
+            warn!(error = %e, "Engine: failed to open price history store, recording disabled");
+            None
+        }
+    };
 
     // Paper trade executor for auto-execution of approved opportunities
     let executor = PaperTradeExecutor::default_pessimism();
@@ -254,6 +277,27 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
         }
 
+        // Enrich opportunities with ensemble probability estimates
+        if prob_estimation_enabled {
+            for opp in &mut opportunities {
+                if let Some(market) = opp.markets.first().and_then(|cid| state.market_cache.get(cid))
+                    && let Ok(est) = prob_estimator.estimate(&market)
+                {
+                    opp.confidence = est.probabilities.first().copied().unwrap_or(0.0);
+                }
+            }
+        }
+
+        // Record changed market prices to historical store every cycle.
+        if let Some(ref store) = price_store
+            && !markets_snapshot.is_empty()
+        {
+            let dereffed: Vec<_> = markets_snapshot.iter().map(|m| (**m).clone()).collect();
+            if let Err(e) = store.record_markets(&dereffed) {
+                debug!(error = %e, "Price history recording failed");
+            }
+        }
+
         // Filter and sort — read min_edge_bps from live config each tick
         // so runtime changes via PUT /api/config take effect immediately
         let min_edge = {
@@ -388,6 +432,15 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                 .map(|m| m.condition_id.clone())
                 .collect();
             poller.cleanup_stale(&active_ids);
+
+            // Purge old price history (30-day rolling window)
+            if let Some(ref store) = price_store {
+                match store.cleanup(30) {
+                    Ok(n) if n > 0 => info!(deleted = n, "Price history: purged old ticks"),
+                    Err(e) => debug!(error = %e, "Price history cleanup failed"),
+                    _ => {}
+                }
+            }
         }
 
         // Sleep before next tick

@@ -80,6 +80,47 @@ pub async fn detect(
 
     let markets = state.market_cache.active_markets();
     let markets_scanned = markets.len();
+
+    // ── Diagnostic counters ──
+    let mut binary_markets = 0usize;
+    let mut neg_risk_markets = 0usize;
+    let mut markets_with_orderbooks = 0usize;
+    let mut closest_ask_sum = Decimal::from(999);
+    let mut closest_bid_sum = Decimal::ZERO;
+
+    for m in &markets {
+        let has_books = !m.orderbooks.is_empty()
+            && m.orderbooks.iter().any(|b| !b.asks.is_empty() || !b.bids.is_empty());
+        if has_books {
+            markets_with_orderbooks += 1;
+        }
+        if m.neg_risk {
+            neg_risk_markets += 1;
+        }
+        if m.token_ids.len() == 2 && !m.neg_risk {
+            binary_markets += 1;
+            // Track closest ask sum for binary markets (YES ask + NO ask)
+            if m.orderbooks.len() == 2
+                && !m.orderbooks[0].asks.is_empty()
+                && !m.orderbooks[1].asks.is_empty()
+            {
+                let ask_sum = m.orderbooks[0].asks[0].price + m.orderbooks[1].asks[0].price;
+                if ask_sum < closest_ask_sum {
+                    closest_ask_sum = ask_sum;
+                }
+            }
+            if m.orderbooks.len() == 2
+                && !m.orderbooks[0].bids.is_empty()
+                && !m.orderbooks[1].bids.is_empty()
+            {
+                let bid_sum = m.orderbooks[0].bids[0].price + m.orderbooks[1].bids[0].price;
+                if bid_sum > closest_bid_sum {
+                    closest_bid_sum = bid_sum;
+                }
+            }
+        }
+    }
+
     let mut opportunities: Vec<Opportunity> = Vec::new();
 
     for detector in &detectors {
@@ -87,6 +128,8 @@ pub async fn detect(
             opportunities.extend(opps);
         }
     }
+
+    let pre_filter_count = opportunities.len();
 
     for opp in &mut opportunities {
         let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
@@ -107,6 +150,17 @@ pub async fn detect(
             "intra_market_enabled": config.strategy.intra_market_enabled,
             "cross_market_enabled": config.strategy.cross_market_enabled,
             "multi_outcome_enabled": config.strategy.multi_outcome_enabled,
+            "intra_min_deviation": config.strategy.intra_market.min_deviation.to_string(),
+            "multi_min_deviation": config.strategy.multi_outcome.min_deviation.to_string(),
+        },
+        "diagnostics": {
+            "binary_markets": binary_markets,
+            "neg_risk_markets": neg_risk_markets,
+            "markets_with_orderbooks": markets_with_orderbooks,
+            "closest_binary_ask_sum": closest_ask_sum.to_string(),
+            "closest_binary_bid_sum": closest_bid_sum.to_string(),
+            "pre_filter_count": pre_filter_count,
+            "post_filter_count": opportunities.len(),
         },
     });
 

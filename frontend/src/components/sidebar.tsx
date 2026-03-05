@@ -11,6 +11,8 @@ import {
   History,
   Menu,
   X,
+  Activity,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +24,8 @@ const navItems = [
   { href: "/", label: "Markets", icon: Store },
   { href: "/dashboard", label: "Portfolio", icon: LayoutDashboard },
   { href: "/opportunities", label: "Playground", icon: FlaskConical },
+  { href: "/simulation", label: "Simulation", icon: Activity },
+  { href: "/simulation/stress-test", label: "Stress Test", icon: ShieldAlert },
   { href: "/controls", label: "Controls", icon: Settings },
   { href: "/history", label: "History", icon: History },
 ];
@@ -45,7 +49,10 @@ export function Sidebar() {
       {/* Nav links */}
       <nav className="flex-1 space-y-0.5 px-3">
         {navItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname === item.href;
           return (
             <Link
               key={item.href}

@@ -8,8 +8,10 @@ use arb_core::{
 };
 use arb_data::correlation::CorrelationGraph;
 use arb_data::market_cache::MarketCache;
+use arb_simulation::copula::TCopula;
 use async_trait::async_trait;
 use chrono::Utc;
+use nalgebra::DMatrix;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tracing::debug;
@@ -52,6 +54,40 @@ impl CrossMarketDetector {
     /// Get the YES token's orderbook (index 0).
     fn yes_book(market: &MarketState) -> Option<&arb_core::OrderbookSnapshot> {
         market.orderbooks.first()
+    }
+
+    /// Estimate confidence adjustment using t-copula tail dependence.
+    ///
+    /// Uses the price correlation between two markets (estimated from their
+    /// current prices as a rough proxy) to compute the t-copula tail dependence
+    /// coefficient. High λ means the pair's relationship is robust in extremes.
+    fn copula_confidence_adjustment(price_a: f64, price_b: f64) -> f64 {
+        // Estimate correlation from price proximity (both are probabilities in [0,1]).
+        // If both markets are near 0.5, they're more uncertain -> lower correlation.
+        // If both are extreme (near 0 or 1), the constraint is more binding.
+        let extremity_a = (price_a - 0.5).abs() * 2.0; // 0..1
+        let extremity_b = (price_b - 0.5).abs() * 2.0;
+        let rho = 0.3 + 0.5 * (extremity_a * extremity_b).sqrt(); // 0.3..0.8 range
+
+        let corr = DMatrix::from_row_slice(2, 2, &[1.0, rho, rho, 1.0]);
+        let df = 5.0; // moderate tail heaviness
+
+        match TCopula::new(corr, df) {
+            Ok(copula) => {
+                let lambda = copula.tail_dependence(0, 1);
+                // Map λ to confidence: λ > 0.3 -> boost, λ < 0.1 -> penalize
+                // Base confidence = 0.85, adjusted range: [0.60, 0.95]
+                let base = 0.85;
+                if lambda > 0.3 {
+                    (base + (lambda - 0.3) * 0.3).min(0.95)
+                } else if lambda < 0.1 {
+                    (base - (0.1 - lambda) * 2.5).max(0.60)
+                } else {
+                    base
+                }
+            }
+            Err(_) => 0.85, // fallback to static confidence
+        }
     }
 
     fn check_pair(
@@ -185,12 +221,23 @@ impl CrossMarketDetector {
         let edge_bps = net_edge_per_unit * Decimal::from(10_000);
 
         if edge_bps >= Decimal::from(self.strategy_config.min_edge_bps) {
+            // Adjust confidence using t-copula tail dependence when enabled
+            let confidence = if self.config.use_copula_correlations {
+                use rust_decimal::prelude::ToPrimitive;
+                let pa = Self::yes_price(market_a).and_then(|p| p.to_f64()).unwrap_or(0.5);
+                let pb = Self::yes_price(market_b).and_then(|p| p.to_f64()).unwrap_or(0.5);
+                Self::copula_confidence_adjustment(pa, pb)
+            } else {
+                0.85 // static fallback
+            };
+
             debug!(
                 market_a = %market_a.condition_id,
                 market_b = %market_b.condition_id,
                 gross_edge = %gross_edge,
                 net_edge = %net_edge_per_unit,
                 edge_bps = %edge_bps,
+                confidence = %confidence,
                 "Cross-market opportunity detected"
             );
 
@@ -220,7 +267,7 @@ impl CrossMarketDetector {
                 gross_edge,
                 net_edge: net_edge_per_unit,
                 estimated_vwap: vec![vwap_a.vwap, vwap_b.vwap],
-                confidence: 0.85, // cross-market arbs have lower confidence (depends on correlation correctness)
+                confidence,
                 size_available: target_size,
                 detected_at: Utc::now(),
             });

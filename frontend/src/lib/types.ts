@@ -29,6 +29,7 @@ export interface MarketState {
   end_date_iso: string | null;
   slug: string | null;
   one_day_price_change: string | null;
+  event_id?: string;
 }
 
 export type ArbType = "IntraMarket" | "CrossMarket" | "MultiOutcome";
