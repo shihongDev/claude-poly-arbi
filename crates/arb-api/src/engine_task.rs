@@ -9,6 +9,7 @@ use std::time::Duration;
 use arb_core::config::ArbConfig;
 use arb_core::traits::{ArbDetector, MarketDataSource, ProbabilityEstimator, RiskManager, SlippageEstimator, TradeExecutor};
 use arb_core::types::{ArbType, RiskDecision};
+use arb_execution::executor::LiveTradeExecutor;
 use arb_execution::paper_trade::PaperTradeExecutor;
 use arb_data::correlation::CorrelationGraph;
 use arb_data::orderbook::OrderbookProcessor;
@@ -121,8 +122,27 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         }
     };
 
-    // Paper trade executor for auto-execution of approved opportunities
-    let executor = PaperTradeExecutor::default_pessimism();
+    // Create executor based on configured trading mode (paper or live)
+    let executor: Box<dyn TradeExecutor> = if config.is_live() {
+        info!("Starting engine in LIVE trading mode");
+        let key_path = config.general.key_file.as_ref().map(std::path::Path::new);
+        match LiveTradeExecutor::from_key_file(
+            key_path,
+            config.slippage.prefer_post_only,
+            config.risk.order_timeout_secs,
+        )
+        .await
+        {
+            Ok(live) => Box::new(live),
+            Err(e) => {
+                error!("Failed to initialize live executor: {e}. Falling back to paper.");
+                Box::new(PaperTradeExecutor::default_pessimism())
+            }
+        }
+    } else {
+        info!("Starting engine in PAPER trading mode");
+        Box::new(PaperTradeExecutor::default_pessimism())
+    };
 
     // ── Phase 1: Fetch all active markets (metadata only, no orderbooks) ──
     info!("Engine: fetching initial market data from Polymarket...");

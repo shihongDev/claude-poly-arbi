@@ -301,6 +301,7 @@ mod tests {
             max_total_exposure: dec!(5000),
             daily_loss_limit: dec!(200),
             max_open_orders: 20,
+            order_timeout_secs: 30,
         }
     }
 
