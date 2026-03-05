@@ -11,12 +11,15 @@ use arb_core::traits::{ArbDetector, MarketDataSource, ProbabilityEstimator, Risk
 use arb_core::types::{ArbType, RiskDecision};
 use arb_execution::paper_trade::PaperTradeExecutor;
 use arb_data::correlation::CorrelationGraph;
+use arb_data::local_book::OrderBookStore;
 use arb_data::orderbook::OrderbookProcessor;
 use arb_data::poller::{
     ConcurrentFetchConfig, MarketPoller, SdkMarketDataSource, classify_markets,
 };
 use arb_data::price_history::PriceHistoryStore;
 use arb_data::vwap_cache::CachedSlippageEstimator;
+use arb_data::ws_feed::{BookUpdate, WsFeedClient};
+use tokio::sync::mpsc;
 use arb_simulation::estimator::EnsembleEstimator;
 use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
@@ -201,6 +204,25 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         }
     }
 
+    // ── Phase 3: Spawn WebSocket feed for real-time book updates ──
+    let book_store = Arc::new(OrderBookStore::new());
+    let (ws_update_tx, mut ws_update_rx) = mpsc::channel::<BookUpdate>(1000);
+
+    // Collect token IDs from classified markets for WS subscription (limit to 200)
+    let hot_tokens: Vec<String> = classified
+        .all_token_ids
+        .iter()
+        .take(200)
+        .cloned()
+        .collect();
+
+    let ws_client = WsFeedClient::new(Arc::clone(&book_store), ws_update_tx);
+    let _ws_sub_tx = ws_client.spawn(hot_tokens.clone());
+    info!(
+        token_count = hot_tokens.len(),
+        "WebSocket feed spawned for real-time book updates"
+    );
+
     info!("Engine: entering main loop");
     let mut last_scan_gen: u64 = 0;
     let mut cycle_count: u64 = 0;
@@ -210,6 +232,16 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         if state.kill_switch_active.load(std::sync::atomic::Ordering::Relaxed) {
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
+        }
+
+        // Drain WebSocket book updates (applied to book_store automatically by WS client;
+        // we drain the notification channel to prevent it from filling up)
+        let mut ws_update_count = 0u64;
+        while let Ok(_update) = ws_update_rx.try_recv() {
+            ws_update_count += 1;
+        }
+        if ws_update_count > 0 {
+            debug!(count = ws_update_count, "Processed WebSocket book updates");
         }
 
         // Clear VWAP cache each tick (orderbooks may have changed)
