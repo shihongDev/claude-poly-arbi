@@ -88,9 +88,14 @@ export const PnlChart = memo(function PnlChart({ data }: PnlChartProps) {
   useEffect(() => {
     if (!seriesRef.current || data.length === 0) return;
 
-    const chartData: AreaData<Time>[] = data.map((d) => ({
-      time: d.time as Time,
-      value: d.value,
+    // Deduplicate by time (keep last value per timestamp) — chart requires strictly ascending times
+    const byTime = new Map<string, number>();
+    for (const d of data) {
+      byTime.set(d.time, d.value);
+    }
+    const chartData: AreaData<Time>[] = Array.from(byTime, ([time, value]) => ({
+      time: time as Time,
+      value,
     }));
 
     seriesRef.current.setData(chartData);

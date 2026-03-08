@@ -33,6 +33,16 @@ export interface MarketState {
 }
 
 export type ArbType = "IntraMarket" | "CrossMarket" | "MultiOutcome";
+export type StrategyType =
+  | "IntraMarketArb"
+  | "CrossMarketArb"
+  | "MultiOutcomeArb"
+  | "ResolutionSniping"
+  | "LiquiditySniping"
+  | "MarketMaking"
+  | "ProbabilityModel"
+  | "StaleMarket"
+  | "VolumeSpike";
 export type Side = "Buy" | "Sell";
 export type TradingMode = "Paper" | "Live";
 export type FillStatus =
@@ -52,6 +62,7 @@ export interface TradeLeg {
 export interface Opportunity {
   id: string;
   arb_type: ArbType;
+  strategy_type?: StrategyType;
   markets: string[];
   legs: TradeLeg[];
   gross_edge: string;
@@ -180,6 +191,22 @@ export interface BacktestResponse {
   aggregate_pnl_original: string;
   daily_breakdown: BacktestDailyBreakdown[];
   trades: BacktestTrade[];
+}
+
+export interface SimulationResult {
+  condition_id: string;
+  initial_price: number;
+  monte_carlo: {
+    probability: number;
+    standard_error: number;
+    confidence_interval: [number, number];
+    n_paths: number;
+  };
+  particle_filter: {
+    probability: number[];
+    confidence_interval: [number, number];
+    method: string;
+  };
 }
 
 export interface SimulateParams {

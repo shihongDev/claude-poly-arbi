@@ -5,22 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatBps, formatUsd, timeAgo } from "@/lib/utils";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { Opportunity, ArbType } from "@/lib/types";
-
-const arbTypeConfig: Record<ArbType, { label: string; className: string }> = {
-  IntraMarket: {
-    label: "Intra",
-    className: "bg-blue-50 text-blue-600",
-  },
-  CrossMarket: {
-    label: "Cross",
-    className: "bg-purple-50 text-purple-600",
-  },
-  MultiOutcome: {
-    label: "Multi",
-    className: "bg-amber-50 text-amber-600",
-  },
-};
+import type { Opportunity } from "@/lib/types";
+import { strategyTypeConfig, getStrategyDisplayType } from "@/lib/strategy-utils";
 
 interface OpportunityRowProps {
   opportunity: Opportunity;
@@ -28,7 +14,8 @@ interface OpportunityRowProps {
 
 export function OpportunityRow({ opportunity }: OpportunityRowProps) {
   const [expanded, setExpanded] = useState(false);
-  const config = arbTypeConfig[opportunity.arb_type];
+  const displayType = getStrategyDisplayType(opportunity);
+  const config = strategyTypeConfig[displayType];
   const netEdge = parseFloat(opportunity.net_edge);
   const confidence = opportunity.confidence;
 

@@ -93,7 +93,7 @@ pub fn opportunity_to_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arb_core::{ArbType, Side, TradeLeg};
+    use arb_core::{ArbType, Side, StrategyType, TradeLeg};
     use chrono::Utc;
     use rust_decimal_macros::dec;
     use uuid::Uuid;
@@ -103,6 +103,7 @@ mod tests {
         Opportunity {
             id: Uuid::new_v4(),
             arb_type: ArbType::IntraMarket,
+            strategy_type: StrategyType::IntraMarketArb,
             markets: vec!["0xabc123".to_owned(), "0xdef456".to_owned()],
             legs: vec![TradeLeg {
                 token_id: "tok1".to_owned(),

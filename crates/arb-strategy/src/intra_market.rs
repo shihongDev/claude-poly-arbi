@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arb_core::{
-    ArbType, MarketState, Opportunity, Side, TradeLeg,
+    ArbType, MarketState, Opportunity, Side, StrategyType, TradeLeg,
     config::{IntraMarketConfig, StrategyConfig},
     error::Result,
     traits::{ArbDetector, SlippageEstimator},
@@ -110,6 +110,7 @@ impl IntraMarketDetector {
                         opps.push(Opportunity {
                             id: Uuid::new_v4(),
                             arb_type: ArbType::IntraMarket,
+                            strategy_type: StrategyType::IntraMarketArb,
                             markets: vec![market.condition_id.clone()],
                             legs: vec![
                                 TradeLeg {
@@ -185,6 +186,7 @@ impl IntraMarketDetector {
                             opps.push(Opportunity {
                                 id: Uuid::new_v4(),
                                 arb_type: ArbType::IntraMarket,
+                                strategy_type: StrategyType::IntraMarketArb,
                                 markets: vec![market.condition_id.clone()],
                                 legs: vec![
                                     TradeLeg {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useDashboardStore } from "@/store";
 import { MetricCard } from "@/components/metric-card";
@@ -8,6 +8,10 @@ import { PnlChart } from "@/components/pnl-chart";
 import { RiskGauge } from "@/components/risk-gauge";
 import { DataTable, type Column } from "@/components/data-table";
 import { SimulationStatusPanel } from "@/components/simulation-status";
+import { Button } from "@/components/ui/button";
+import { Loader2, X } from "lucide-react";
+import { toast } from "sonner";
+import { closePosition, closeAllPositions } from "@/lib/api";
 import {
   formatUsd,
   formatPnl,
@@ -16,6 +20,7 @@ import {
   cn,
 } from "@/lib/utils";
 import type { Position } from "@/lib/types";
+import { strategyLabels } from "@/lib/strategy-utils";
 import type { EChartsOption } from "echarts";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
@@ -65,84 +70,96 @@ function ChartPanel({
 }
 
 // ---------------------------------------------------------------------------
-// Positions Table Columns
+// Close Position Button (per-row action)
 // ---------------------------------------------------------------------------
 
-const POSITION_COLUMNS: Column<Position>[] = [
-  {
-    key: "token_id",
-    header: "Token ID",
-    sortable: true,
-    mono: true,
-    render: (row) => (
-      <span className="text-[#1A1A19]" title={row.token_id}>
-        {truncateId(row.token_id)}
-      </span>
-    ),
-    getValue: (row) => row.token_id,
-  },
-  {
-    key: "condition_id",
-    header: "Condition ID",
-    sortable: true,
-    mono: true,
-    render: (row) => (
-      <span className="text-[#1A1A19]" title={row.condition_id}>
-        {truncateId(row.condition_id)}
-      </span>
-    ),
-    getValue: (row) => row.condition_id,
-  },
-  {
-    key: "size",
-    header: "Size",
-    sortable: true,
-    mono: true,
-    render: (row) => (
-      <span className="text-[#1A1A19]">{formatDecimal(row.size, 4)}</span>
-    ),
-    getValue: (row) => parseFloat(row.size),
-  },
-  {
-    key: "entry_price",
-    header: "Entry Price",
-    sortable: true,
-    mono: true,
-    render: (row) => (
-      <span className="text-[#1A1A19]">
-        {formatDecimal(row.avg_entry_price, 4)}
-      </span>
-    ),
-    getValue: (row) => parseFloat(row.avg_entry_price),
-  },
-  {
-    key: "current_price",
-    header: "Current Price",
-    sortable: true,
-    mono: true,
-    render: (row) => (
-      <span className="text-[#1A1A19]">
-        {formatDecimal(row.current_price, 4)}
-      </span>
-    ),
-    getValue: (row) => parseFloat(row.current_price),
-  },
-  {
-    key: "unrealized_pnl",
-    header: "Unrealized P&L",
-    sortable: true,
-    mono: true,
-    render: (row) => {
-      const pnl = parseFloat(row.unrealized_pnl);
-      return (
-        <span className={pnl >= 0 ? "text-[#2D6A4F]" : "text-[#B44C3F]"}>
-          {formatPnl(row.unrealized_pnl)}
-        </span>
-      );
-    },
-    getValue: (row) => parseFloat(row.unrealized_pnl),
-  },
-];
+function ClosePositionButton({ tokenId }: { tokenId: string }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleClose = useCallback(async () => {
+    setLoading(true);
+    try {
+      await closePosition(tokenId);
+      toast.success("Position closed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to close position");
+    } finally {
+      setLoading(false);
+    }
+  }, [tokenId]);
+
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      className="text-[#B44C3F] hover:text-[#B44C3F] hover:bg-[#B44C3F]/10"
+      disabled={loading}
+      onClick={handleClose}
+    >
+      {loading ? <Loader2 className="animate-spin" /> : <X />}
+      Close
+    </Button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Close All Button (card header action)
+// ---------------------------------------------------------------------------
+
+function CloseAllButton({ count }: { count: number }) {
+  const [confirming, setConfirming] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-cancel confirmation after 3s
+  useEffect(() => {
+    if (confirming) {
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+      return () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+      };
+    }
+  }, [confirming]);
+
+  const handleClick = useCallback(async () => {
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+
+    // Second click — execute
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setConfirming(false);
+    setLoading(true);
+    try {
+      const result = await closeAllPositions();
+      toast.success(`Closed ${result.closed} position${result.closed === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to close positions");
+    } finally {
+      setLoading(false);
+    }
+  }, [confirming]);
+
+  if (count === 0) return null;
+
+  return (
+    <Button
+      variant={confirming ? "destructive" : "outline"}
+      size="xs"
+      disabled={loading}
+      onClick={handleClick}
+    >
+      {loading ? (
+        <Loader2 className="animate-spin" />
+      ) : confirming ? (
+        "Confirm Close All"
+      ) : (
+        `Close All (${count})`
+      )}
+    </Button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // ECharts Option Builders (from Performance)
@@ -265,14 +282,8 @@ function buildExecutionQualityOption(
 function buildPnlByStrategyOption(
   pnlByType: Record<string, string>,
 ): EChartsOption {
-  const labels: Record<string, string> = {
-    IntraMarket: "Intra-Market",
-    CrossMarket: "Cross-Market",
-    MultiOutcome: "Multi-Outcome",
-  };
-
   const entries = Object.entries(pnlByType).map(([key, val]) => ({
-    label: labels[key] ?? key,
+    label: strategyLabels[key] ?? key,
     value: parseFloat(val),
   }));
 
@@ -422,21 +433,113 @@ export default function PortfolioPage() {
     });
   }, [history]);
 
-  // -- Positions aggregates (from Positions) --
-  const totalExposure = useMemo(
-    () => positions.reduce((sum, p) => sum + exposure(p), 0),
+  // -- Active positions (size > 0) --
+  const activePositions = useMemo(
+    () => positions.filter((p) => parseFloat(p.size) > 0),
     [positions]
   );
 
+  // -- Positions table columns --
+  const positionColumns: Column<Position>[] = useMemo(
+    () => [
+      {
+        key: "token_id",
+        header: "Token ID",
+        sortable: true,
+        mono: true,
+        render: (row: Position) => (
+          <span className="text-[#1A1A19]" title={row.token_id}>
+            {truncateId(row.token_id)}
+          </span>
+        ),
+        getValue: (row: Position) => row.token_id,
+      },
+      {
+        key: "condition_id",
+        header: "Condition ID",
+        sortable: true,
+        mono: true,
+        render: (row: Position) => (
+          <span className="text-[#1A1A19]" title={row.condition_id}>
+            {truncateId(row.condition_id)}
+          </span>
+        ),
+        getValue: (row: Position) => row.condition_id,
+      },
+      {
+        key: "size",
+        header: "Size",
+        sortable: true,
+        mono: true,
+        render: (row: Position) => (
+          <span className="text-[#1A1A19]">{formatDecimal(row.size, 4)}</span>
+        ),
+        getValue: (row: Position) => parseFloat(row.size),
+      },
+      {
+        key: "entry_price",
+        header: "Entry Price",
+        sortable: true,
+        mono: true,
+        render: (row: Position) => (
+          <span className="text-[#1A1A19]">
+            {formatDecimal(row.avg_entry_price, 4)}
+          </span>
+        ),
+        getValue: (row: Position) => parseFloat(row.avg_entry_price),
+      },
+      {
+        key: "current_price",
+        header: "Current Price",
+        sortable: true,
+        mono: true,
+        render: (row: Position) => (
+          <span className="text-[#1A1A19]">
+            {formatDecimal(row.current_price, 4)}
+          </span>
+        ),
+        getValue: (row: Position) => parseFloat(row.current_price),
+      },
+      {
+        key: "unrealized_pnl",
+        header: "Unrealized P&L",
+        sortable: true,
+        mono: true,
+        render: (row: Position) => {
+          const pnl = parseFloat(row.unrealized_pnl);
+          return (
+            <span className={pnl >= 0 ? "text-[#2D6A4F]" : "text-[#B44C3F]"}>
+              {formatPnl(row.unrealized_pnl)}
+            </span>
+          );
+        },
+        getValue: (row: Position) => parseFloat(row.unrealized_pnl),
+      },
+      {
+        key: "actions",
+        header: "",
+        sortable: false,
+        render: (row: Position) => <ClosePositionButton tokenId={row.token_id} />,
+      },
+    ],
+    []
+  );
+
+  // -- Positions aggregates (from Positions) --
+  const totalExposure = useMemo(
+    () => activePositions.reduce((sum, p) => sum + exposure(p), 0),
+    [activePositions]
+  );
+
   const totalUnrealizedPnl = useMemo(
-    () => positions.reduce((sum, p) => sum + parseFloat(p.unrealized_pnl), 0),
-    [positions]
+    () => activePositions.reduce((sum, p) => sum + parseFloat(p.unrealized_pnl), 0),
+    [activePositions]
   );
 
   // -- Exposure donut (from Positions) --
   const exposureChartOption = useMemo(
-    () => (positions.length > 0 ? buildExposureDonutOption(positions) : null),
-    [positions]
+    () => (activePositions.length > 0 ? buildExposureDonutOption(activePositions) : null),
+    [activePositions]
   );
 
   // -- Execution quality trend (from Performance) --
@@ -456,17 +559,20 @@ export default function PortfolioPage() {
     [history]
   );
 
-  const currentExposure = metrics ? parseFloat(metrics.current_exposure) : 0;
-  const drawdownPct = metrics ? metrics.drawdown_pct : 0;
+  // Treat metrics as unavailable if the server returned an empty object (before first engine cycle)
+  const metricsReady =
+    metrics != null && metrics.brier_score != null && metrics.total_pnl != null;
+  const currentExposure = metricsReady ? parseFloat(metrics.current_exposure) : 0;
+  const drawdownPct = metricsReady ? metrics.drawdown_pct : 0;
   const hasPnlByType =
-    metrics != null &&
+    metricsReady &&
     metrics.pnl_by_type != null &&
     Object.keys(metrics.pnl_by_type).length > 0;
 
   // Memoize ECharts options to prevent full chart re-initialization on every render
   const brierOption = useMemo(
-    () => (metrics ? buildBrierGaugeOption(metrics.brier_score) : null),
-    [metrics?.brier_score]
+    () => (metricsReady ? buildBrierGaugeOption(metrics.brier_score) : null),
+    [metricsReady, metrics?.brier_score]
   );
 
   const execQualityOption = useMemo(
@@ -494,7 +600,7 @@ export default function PortfolioPage() {
       </div>
 
       {/* Hero P&L */}
-      {metrics && (
+      {metricsReady && (
         <div className="py-4">
           <p className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
             Total P&L
@@ -518,9 +624,9 @@ export default function PortfolioPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <MetricCard
           title="Daily P&L"
-          value={metrics ? formatPnl(metrics.daily_pnl) : "\u2014"}
+          value={metricsReady ? formatPnl(metrics.daily_pnl) : "\u2014"}
           deltaType={
-            metrics
+            metricsReady
               ? parseFloat(metrics.daily_pnl) >= 0
                 ? "positive"
                 : "negative"
@@ -538,14 +644,14 @@ export default function PortfolioPage() {
         />
         <MetricCard
           title="Open Positions"
-          value={positions.length.toLocaleString()}
+          value={activePositions.length.toLocaleString()}
         />
         <MetricCard
           title="Brier Score"
-          value={metrics ? metrics.brier_score.toFixed(4) : "\u2014"}
-          delta={metrics ? "<0.25 is better than random" : undefined}
+          value={metricsReady ? metrics.brier_score.toFixed(4) : "\u2014"}
+          delta={metricsReady ? "<0.25 is better than random" : undefined}
           deltaType={
-            metrics
+            metricsReady
               ? metrics.brier_score < 0.25
                 ? "positive"
                 : "negative"
@@ -554,7 +660,7 @@ export default function PortfolioPage() {
         />
         <MetricCard
           title="Total Trades"
-          value={metrics ? metrics.trade_count.toLocaleString() : "\u2014"}
+          value={metricsReady ? metrics.trade_count.toLocaleString() : "\u2014"}
         />
       </div>
 
@@ -622,19 +728,20 @@ export default function PortfolioPage() {
       {/* Section 3: Positions Table + Exposure Donut */}
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="rounded-2xl bg-white lg:col-span-3">
-          <div className="border-b border-[#E6E4DF] px-5 py-4">
+          <div className="flex items-center justify-between border-b border-[#E6E4DF] px-5 py-4">
             <h2 className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
               Open Positions
             </h2>
+            <CloseAllButton count={activePositions.length} />
           </div>
-          {positions.length === 0 ? (
+          {activePositions.length === 0 ? (
             <div className="flex h-[300px] items-center justify-center text-sm text-[#9B9B9B]">
               No open positions
             </div>
           ) : (
             <DataTable
-              columns={POSITION_COLUMNS}
-              data={positions}
+              columns={positionColumns}
+              data={activePositions}
               pageSize={10}
             />
           )}

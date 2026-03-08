@@ -58,11 +58,61 @@ pub struct StrategyConfig {
     #[serde(default)]
     pub multi_outcome_enabled: bool,
     #[serde(default)]
+    pub resolution_sniping_enabled: bool,
+    #[serde(default)]
+    pub stale_market_enabled: bool,
+    #[serde(default)]
+    pub volume_spike_enabled: bool,
+    #[serde(default)]
+    pub prob_model_enabled: bool,
+    #[serde(default)]
+    pub liquidity_sniping_enabled: bool,
+    #[serde(default)]
+    pub market_making_enabled: bool,
+    #[serde(default)]
     pub intra_market: IntraMarketConfig,
     #[serde(default)]
     pub cross_market: CrossMarketConfig,
     #[serde(default)]
     pub multi_outcome: MultiOutcomeConfig,
+    #[serde(default)]
+    pub resolution_sniping: ResolutionSnipingConfig,
+    #[serde(default)]
+    pub stale_market: StaleMarketConfig,
+    #[serde(default)]
+    pub volume_spike: VolumeSpikeConfig,
+    #[serde(default)]
+    pub prob_model: ProbModelConfig,
+    #[serde(default)]
+    pub liquidity_sniping: LiquiditySnipingConfig,
+    #[serde(default)]
+    pub market_making: MarketMakingConfig,
+}
+
+impl Default for StrategyConfig {
+    fn default() -> Self {
+        Self {
+            min_edge_bps: default_min_edge_bps(),
+            intra_market_enabled: true,
+            cross_market_enabled: false,
+            multi_outcome_enabled: false,
+            resolution_sniping_enabled: false,
+            stale_market_enabled: false,
+            volume_spike_enabled: false,
+            prob_model_enabled: false,
+            liquidity_sniping_enabled: false,
+            market_making_enabled: false,
+            intra_market: IntraMarketConfig::default(),
+            cross_market: CrossMarketConfig::default(),
+            multi_outcome: MultiOutcomeConfig::default(),
+            resolution_sniping: ResolutionSnipingConfig::default(),
+            stale_market: StaleMarketConfig::default(),
+            volume_spike: VolumeSpikeConfig::default(),
+            prob_model: ProbModelConfig::default(),
+            liquidity_sniping: LiquiditySnipingConfig::default(),
+            market_making: MarketMakingConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +161,144 @@ impl Default for MultiOutcomeConfig {
     fn default() -> Self {
         Self {
             min_deviation: default_multi_min_deviation(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolutionSnipingConfig {
+    #[serde(default = "default_res_min_price")]
+    pub min_price: Decimal,
+    #[serde(default = "default_res_max_price")]
+    pub max_price: Decimal,
+    #[serde(default = "default_res_max_hours")]
+    pub max_hours_to_resolution: u64,
+    #[serde(default = "default_res_min_volume")]
+    pub min_volume_24h: Decimal,
+    #[serde(default = "default_strategy_max_position")]
+    pub max_position: Decimal,
+}
+
+impl Default for ResolutionSnipingConfig {
+    fn default() -> Self {
+        Self {
+            min_price: default_res_min_price(),
+            max_price: default_res_max_price(),
+            max_hours_to_resolution: default_res_max_hours(),
+            min_volume_24h: default_res_min_volume(),
+            max_position: default_strategy_max_position(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaleMarketConfig {
+    #[serde(default = "default_stale_max_hours")]
+    pub max_stale_hours: u64,
+    #[serde(default = "default_stale_min_divergence_bps")]
+    pub min_divergence_bps: u64,
+    #[serde(default = "default_stale_min_volume")]
+    pub min_volume_24h: Decimal,
+}
+
+impl Default for StaleMarketConfig {
+    fn default() -> Self {
+        Self {
+            max_stale_hours: default_stale_max_hours(),
+            min_divergence_bps: default_stale_min_divergence_bps(),
+            min_volume_24h: default_stale_min_volume(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeSpikeConfig {
+    #[serde(default = "default_vol_rolling_window")]
+    pub rolling_window_mins: u64,
+    #[serde(default = "default_vol_spike_multiplier")]
+    pub spike_multiplier: f64,
+    #[serde(default = "default_vol_min_absolute")]
+    pub min_absolute_volume: Decimal,
+    #[serde(default = "default_strategy_max_position")]
+    pub max_position: Decimal,
+}
+
+impl Default for VolumeSpikeConfig {
+    fn default() -> Self {
+        Self {
+            rolling_window_mins: default_vol_rolling_window(),
+            spike_multiplier: default_vol_spike_multiplier(),
+            min_absolute_volume: default_vol_min_absolute(),
+            max_position: default_strategy_max_position(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbModelConfig {
+    #[serde(default = "default_prob_min_deviation_bps")]
+    pub min_deviation_bps: u64,
+    #[serde(default = "default_prob_min_confidence")]
+    pub min_confidence: f64,
+    #[serde(default = "default_strategy_max_position")]
+    pub max_position: Decimal,
+}
+
+impl Default for ProbModelConfig {
+    fn default() -> Self {
+        Self {
+            min_deviation_bps: default_prob_min_deviation_bps(),
+            min_confidence: default_prob_min_confidence(),
+            max_position: default_strategy_max_position(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiquiditySnipingConfig {
+    #[serde(default = "default_liq_min_depth_change")]
+    pub min_depth_change_pct: f64,
+    #[serde(default = "default_liq_max_reaction_ms")]
+    pub max_reaction_ms: u64,
+    #[serde(default = "default_liq_stop_loss_bps")]
+    pub stop_loss_bps: u64,
+    #[serde(default = "default_strategy_max_position")]
+    pub max_position: Decimal,
+}
+
+impl Default for LiquiditySnipingConfig {
+    fn default() -> Self {
+        Self {
+            min_depth_change_pct: default_liq_min_depth_change(),
+            max_reaction_ms: default_liq_max_reaction_ms(),
+            stop_loss_bps: default_liq_stop_loss_bps(),
+            max_position: default_strategy_max_position(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketMakingConfig {
+    #[serde(default = "default_mm_target_spread")]
+    pub target_spread_bps: u64,
+    #[serde(default = "default_mm_max_inventory")]
+    pub max_inventory: Decimal,
+    #[serde(default = "default_mm_quote_size")]
+    pub quote_size: Decimal,
+    #[serde(default = "default_mm_requote_interval")]
+    pub requote_interval_secs: u64,
+    #[serde(default = "default_mm_min_volume")]
+    pub min_volume_24h: Decimal,
+}
+
+impl Default for MarketMakingConfig {
+    fn default() -> Self {
+        Self {
+            target_spread_bps: default_mm_target_spread(),
+            max_inventory: default_mm_max_inventory(),
+            quote_size: default_mm_quote_size(),
+            requote_interval_secs: default_mm_requote_interval(),
+            min_volume_24h: default_mm_min_volume(),
         }
     }
 }
@@ -257,6 +445,81 @@ fn default_starting_equity() -> Decimal {
     Decimal::from(10_000)
 }
 
+// ─── Resolution Sniping Defaults ──────────────────────────
+fn default_res_min_price() -> Decimal {
+    Decimal::new(92, 2) // 0.92
+}
+fn default_res_max_price() -> Decimal {
+    Decimal::new(98, 2) // 0.98
+}
+fn default_res_max_hours() -> u64 {
+    48
+}
+fn default_res_min_volume() -> Decimal {
+    Decimal::from(5_000)
+}
+fn default_strategy_max_position() -> Decimal {
+    Decimal::from(200)
+}
+
+// ─── Stale Market Defaults ────────────────────────────────
+fn default_stale_max_hours() -> u64 {
+    24
+}
+fn default_stale_min_divergence_bps() -> u64 {
+    50
+}
+fn default_stale_min_volume() -> Decimal {
+    Decimal::from(1_000)
+}
+
+// ─── Volume Spike Defaults ────────────────────────────────
+fn default_vol_rolling_window() -> u64 {
+    60
+}
+fn default_vol_spike_multiplier() -> f64 {
+    3.0
+}
+fn default_vol_min_absolute() -> Decimal {
+    Decimal::from(1_000)
+}
+
+// ─── Probability Model Defaults ───────────────────────────
+fn default_prob_min_deviation_bps() -> u64 {
+    100
+}
+fn default_prob_min_confidence() -> f64 {
+    0.70
+}
+
+// ─── Liquidity Sniping Defaults ───────────────────────────
+fn default_liq_min_depth_change() -> f64 {
+    50.0
+}
+fn default_liq_max_reaction_ms() -> u64 {
+    2_000
+}
+fn default_liq_stop_loss_bps() -> u64 {
+    100
+}
+
+// ─── Market Making Defaults ──────────────────────────────
+fn default_mm_target_spread() -> u64 {
+    200
+}
+fn default_mm_max_inventory() -> Decimal {
+    Decimal::from(500)
+}
+fn default_mm_quote_size() -> Decimal {
+    Decimal::from(50)
+}
+fn default_mm_requote_interval() -> u64 {
+    5
+}
+fn default_mm_min_volume() -> Decimal {
+    Decimal::from(10_000)
+}
+
 // ─── Load/Save ───────────────────────────────────────────
 
 impl ArbConfig {
@@ -399,13 +662,9 @@ impl Default for ArbConfig {
                 warm_volume_threshold: default_warm_volume_threshold(),
             },
             strategy: StrategyConfig {
-                min_edge_bps: default_min_edge_bps(),
-                intra_market_enabled: true,
                 cross_market_enabled: true,
                 multi_outcome_enabled: true,
-                intra_market: IntraMarketConfig::default(),
-                cross_market: CrossMarketConfig::default(),
-                multi_outcome: MultiOutcomeConfig::default(),
+                ..StrategyConfig::default()
             },
             slippage: SlippageConfig {
                 max_slippage_bps: default_max_slippage_bps(),

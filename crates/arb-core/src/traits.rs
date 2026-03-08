@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rust_decimal::Decimal;
+use tokio::sync::{mpsc, watch};
 
 use crate::error::Result;
 use crate::types::*;
@@ -55,4 +56,20 @@ pub trait RiskManager: Send + Sync {
 pub trait ProbabilityEstimator: Send + Sync {
     fn estimate(&self, market: &MarketState) -> Result<ProbEstimate>;
     fn update(&mut self, market: &MarketState, new_data: &MarketState);
+}
+
+/// Event-driven strategy that runs its own async loop.
+///
+/// Unlike `ArbDetector` (which is polled each tick), `LiveStrategy` owns
+/// its own event loop — subscribing to WS updates, maintaining state, and
+/// pushing actions through `action_tx`. The engine spawns each strategy
+/// as a separate tokio task and drains the action channel each tick.
+#[async_trait]
+pub trait LiveStrategy: Send + Sync {
+    fn strategy_type(&self) -> StrategyType;
+    async fn run(
+        &mut self,
+        action_tx: mpsc::Sender<StrategyAction>,
+        shutdown: watch::Receiver<bool>,
+    ) -> Result<()>;
 }

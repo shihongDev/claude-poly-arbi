@@ -101,6 +101,35 @@ export function getWsUrl(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Position Management API
+// ---------------------------------------------------------------------------
+
+import type { ExecutionReport } from "./types";
+
+export function closePosition(tokenId: string): Promise<ExecutionReport> {
+  return fetchApi(`/api/positions/${encodeURIComponent(tokenId)}/close`, {
+    method: "POST",
+  });
+}
+
+export function closeAllPositions(): Promise<{
+  closed: number;
+  reports: ExecutionReport[];
+}> {
+  return fetchApi("/api/positions/close-all", { method: "POST" });
+}
+
+export function reducePosition(
+  tokenId: string,
+  size: string
+): Promise<ExecutionReport> {
+  return fetchApi(`/api/positions/${encodeURIComponent(tokenId)}/reduce`, {
+    method: "POST",
+    body: JSON.stringify({ size }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Sandbox / Playground API
 // ---------------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-use arb_core::{ArbType, MarketState, Opportunity, Side, TradeLeg};
+use arb_core::{ArbType, MarketState, Opportunity, Side, StrategyType, TradeLeg};
 use chrono::Utc;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -59,6 +59,7 @@ impl DeadlineMonotonicityDetector {
                 opps.push(Opportunity {
                     id: Uuid::new_v4(),
                     arb_type: ArbType::CrossMarket,
+                    strategy_type: StrategyType::CrossMarketArb,
                     markets: vec![
                         earlier.condition_id.clone(),
                         later.condition_id.clone(),

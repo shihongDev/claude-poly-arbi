@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arb_core::{
-    ArbType, MarketState, Opportunity, Side, TradeLeg,
+    ArbType, MarketState, Opportunity, Side, StrategyType, TradeLeg,
     config::{MultiOutcomeConfig, StrategyConfig},
     error::Result,
     traits::{ArbDetector, SlippageEstimator},
@@ -164,6 +164,7 @@ impl MultiOutcomeDetector {
                             opps.push(Opportunity {
                                 id: Uuid::new_v4(),
                                 arb_type: ArbType::MultiOutcome,
+                                strategy_type: StrategyType::MultiOutcomeArb,
                                 markets: market_ids.clone(),
                                 legs,
                                 gross_edge,
@@ -248,6 +249,7 @@ impl MultiOutcomeDetector {
                             opps.push(Opportunity {
                                 id: Uuid::new_v4(),
                                 arb_type: ArbType::MultiOutcome,
+                                strategy_type: StrategyType::MultiOutcomeArb,
                                 markets: market_ids,
                                 legs,
                                 gross_edge,
@@ -363,6 +365,7 @@ impl MultiOutcomeDetector {
                                 opps.push(Opportunity {
                                     id: Uuid::new_v4(),
                                     arb_type: ArbType::MultiOutcome,
+                                    strategy_type: StrategyType::MultiOutcomeArb,
                                     markets: vec![market.condition_id.clone()],
                                     legs,
                                     gross_edge,
@@ -447,6 +450,7 @@ impl MultiOutcomeDetector {
                                 opps.push(Opportunity {
                                     id: Uuid::new_v4(),
                                     arb_type: ArbType::MultiOutcome,
+                                    strategy_type: StrategyType::MultiOutcomeArb,
                                     markets: vec![market.condition_id.clone()],
                                     legs,
                                     gross_edge,

@@ -20,6 +20,11 @@ use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
 use arb_strategy::multi_outcome::MultiOutcomeDetector;
+use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
+use arb_strategy::liquidity_sniping::LiquiditySnipingDetector;
+use arb_strategy::market_making::MarketMakingDetector;
+use arb_strategy::stale_market::StaleMarketDetector;
+use arb_strategy::volume_spike::VolumeSpikeDetector;
 use rust_decimal::Decimal;
 use tracing::{debug, error, info, warn};
 
@@ -85,6 +90,46 @@ impl ArbEngine {
                 config.strategy.clone(),
                 Arc::new(correlation_graph),
                 cache.clone(),
+                slippage_estimator.clone(),
+            )));
+        }
+
+        if config.strategy.resolution_sniping_enabled {
+            detectors.push(Box::new(ResolutionSnipingDetector::new(
+                config.strategy.resolution_sniping.clone(),
+                config.strategy.clone(),
+                slippage_estimator.clone(),
+            )));
+        }
+
+        if config.strategy.stale_market_enabled {
+            detectors.push(Box::new(StaleMarketDetector::new(
+                config.strategy.stale_market.clone(),
+                config.strategy.clone(),
+                slippage_estimator.clone(),
+            )));
+        }
+
+        if config.strategy.volume_spike_enabled {
+            detectors.push(Box::new(VolumeSpikeDetector::new(
+                config.strategy.volume_spike.clone(),
+                config.strategy.clone(),
+                slippage_estimator.clone(),
+            )));
+        }
+
+        if config.strategy.liquidity_sniping_enabled {
+            detectors.push(Box::new(LiquiditySnipingDetector::new(
+                config.strategy.liquidity_sniping.clone(),
+                config.strategy.clone(),
+                slippage_estimator.clone(),
+            )));
+        }
+
+        if config.strategy.market_making_enabled {
+            detectors.push(Box::new(MarketMakingDetector::new(
+                config.strategy.market_making.clone(),
+                config.strategy.clone(),
                 slippage_estimator.clone(),
             )));
         }

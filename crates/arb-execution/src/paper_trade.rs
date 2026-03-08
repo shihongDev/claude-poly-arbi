@@ -186,13 +186,14 @@ impl TradeExecutor for PaperTradeExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arb_core::{ArbType, TradeLeg};
+    use arb_core::{ArbType, StrategyType, TradeLeg};
     use rust_decimal_macros::dec;
 
     fn make_opp() -> Opportunity {
         Opportunity {
             id: Uuid::new_v4(),
             arb_type: ArbType::IntraMarket,
+            strategy_type: StrategyType::IntraMarketArb,
             markets: vec!["cond_abc".into()],
             legs: vec![
                 TradeLeg {

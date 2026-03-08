@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use arb_core::{
-    MarketCorrelation, CorrelationRelationship,
+    MarketCorrelation, MarketState, CorrelationRelationship,
     error::{ArbError, Result},
 };
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use tracing::debug;
 
 /// Stores user-defined logical relationships between markets.
 ///
@@ -102,6 +104,66 @@ impl CorrelationGraph {
 
     pub fn is_empty(&self) -> bool {
         self.pairs.is_empty()
+    }
+
+    /// Merge auto-detected correlations into this graph.
+    /// Skips pairs that already exist (by condition_id pair).
+    pub fn merge(&mut self, new_pairs: Vec<MarketCorrelation>) {
+        for pair in new_pairs {
+            let already_exists = self.pairs.iter().any(|p| {
+                (p.condition_id_a == pair.condition_id_a && p.condition_id_b == pair.condition_id_b)
+                || (p.condition_id_a == pair.condition_id_b && p.condition_id_b == pair.condition_id_a)
+            });
+            if !already_exists {
+                self.pairs.push(pair);
+            }
+        }
+    }
+
+    /// Auto-detect correlations from markets sharing the same `event_id`.
+    ///
+    /// Markets within the same event are assumed to be mutually exclusive
+    /// (each represents a different outcome of the same question).
+    /// Generates `MutuallyExclusive` pairs for all combinations.
+    pub fn auto_detect(markets: &[MarketState]) -> Vec<MarketCorrelation> {
+        let mut by_event: HashMap<&str, Vec<&MarketState>> = HashMap::new();
+
+        for market in markets {
+            if !market.active {
+                continue;
+            }
+            if let Some(ref eid) = market.event_id {
+                by_event.entry(eid.as_str()).or_default().push(market);
+            }
+        }
+
+        let mut auto_pairs = Vec::new();
+
+        for (event_id, group) in &by_event {
+            if group.len() < 2 {
+                continue;
+            }
+
+            // For events with 2+ markets: all pairs are mutually exclusive
+            for i in 0..group.len() {
+                for j in (i + 1)..group.len() {
+                    auto_pairs.push(MarketCorrelation {
+                        condition_id_a: group[i].condition_id.clone(),
+                        condition_id_b: group[j].condition_id.clone(),
+                        relationship: CorrelationRelationship::MutuallyExclusive,
+                    });
+                }
+            }
+
+            debug!(
+                event_id = %event_id,
+                n_markets = group.len(),
+                n_pairs = group.len() * (group.len() - 1) / 2,
+                "Auto-detected mutually exclusive pairs"
+            );
+        }
+
+        auto_pairs
     }
 }
 

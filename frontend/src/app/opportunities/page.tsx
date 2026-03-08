@@ -60,21 +60,11 @@ import type {
   BacktestResponse,
   BacktestTrade,
   Opportunity,
-  ArbType,
   SimulateParams,
 } from "@/lib/types";
+import { strategyTypeConfig, getStrategyDisplayType } from "@/lib/strategy-utils";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
-
-// ---------------------------------------------------------------------------
-// Arb-type badge config (shared with detail sheet)
-// ---------------------------------------------------------------------------
-
-const arbTypeConfig: Record<ArbType, { label: string; className: string }> = {
-  IntraMarket: { label: "Intra-Market", className: "bg-blue-50 text-blue-600" },
-  CrossMarket: { label: "Cross-Market", className: "bg-purple-50 text-purple-600" },
-  MultiOutcome: { label: "Multi-Outcome", className: "bg-amber-50 text-amber-600" },
-};
 
 // ---------------------------------------------------------------------------
 // Simulation result types (reused from simulation page)
@@ -306,7 +296,8 @@ export default function PlaygroundPage() {
         key: "type",
         header: "Type",
         render: (row) => {
-          const cfg = arbTypeConfig[row.arb_type];
+          const st = getStrategyDisplayType(row);
+          const cfg = strategyTypeConfig[st];
           return <Badge className={cn("text-xs", cfg.className)}>{cfg.label}</Badge>;
         },
       },
@@ -1080,9 +1071,10 @@ export default function PlaygroundPage() {
                 <div className="space-y-6 pb-6">
                   <div className="grid grid-cols-2 gap-4">
                     <DetailField label="Type">
-                      <Badge className={cn("text-xs", arbTypeConfig[selectedOpp.arb_type].className)}>
-                        {arbTypeConfig[selectedOpp.arb_type].label}
-                      </Badge>
+                      {(() => {
+                        const cfg = strategyTypeConfig[getStrategyDisplayType(selectedOpp)];
+                        return <Badge className={cn("text-xs", cfg.className)}>{cfg.label}</Badge>;
+                      })()}
                     </DetailField>
                     <DetailField label="Detected">{timeAgo(selectedOpp.detected_at)}</DetailField>
                     <DetailField label="Gross Edge" mono>{formatDecimal(selectedOpp.gross_edge, 6)}</DetailField>

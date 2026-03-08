@@ -47,6 +47,12 @@ interface DaemonConfig {
     intra_market_enabled: boolean;
     cross_market_enabled: boolean;
     multi_outcome_enabled: boolean;
+    resolution_sniping_enabled: boolean;
+    stale_market_enabled: boolean;
+    volume_spike_enabled: boolean;
+    liquidity_sniping_enabled: boolean;
+    market_making_enabled: boolean;
+    prob_model_enabled: boolean;
   };
   risk: {
     max_position_per_market: number;
@@ -72,6 +78,12 @@ const defaultConfig: DaemonConfig = {
     intra_market_enabled: true,
     cross_market_enabled: true,
     multi_outcome_enabled: false,
+    resolution_sniping_enabled: false,
+    stale_market_enabled: false,
+    volume_spike_enabled: false,
+    liquidity_sniping_enabled: false,
+    market_making_enabled: false,
+    prob_model_enabled: false,
   },
   risk: {
     max_position_per_market: 500,
@@ -524,44 +536,29 @@ export default function ControlsPage() {
                   {/* Spacer for alignment */}
                   <div />
 
-                  {/* Intra-Market */}
-                  <div className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3">
-                    <Label className="text-[#1A1A19]">
-                      Intra-Market Enabled
-                    </Label>
-                    <Switch
-                      checked={config.strategy.intra_market_enabled}
-                      onCheckedChange={(v) =>
-                        updateStrategy("intra_market_enabled", v)
-                      }
-                    />
-                  </div>
-
-                  {/* Cross-Market */}
-                  <div className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3">
-                    <Label className="text-[#1A1A19]">
-                      Cross-Market Enabled
-                    </Label>
-                    <Switch
-                      checked={config.strategy.cross_market_enabled}
-                      onCheckedChange={(v) =>
-                        updateStrategy("cross_market_enabled", v)
-                      }
-                    />
-                  </div>
-
-                  {/* Multi-Outcome */}
-                  <div className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3">
-                    <Label className="text-[#1A1A19]">
-                      Multi-Outcome Enabled
-                    </Label>
-                    <Switch
-                      checked={config.strategy.multi_outcome_enabled}
-                      onCheckedChange={(v) =>
-                        updateStrategy("multi_outcome_enabled", v)
-                      }
-                    />
-                  </div>
+                  {/* Strategy toggles */}
+                  {([
+                    ["intra_market_enabled", "Intra-Market"],
+                    ["cross_market_enabled", "Cross-Market"],
+                    ["multi_outcome_enabled", "Multi-Outcome"],
+                    ["resolution_sniping_enabled", "Resolution Sniping"],
+                    ["stale_market_enabled", "Stale Market Detection"],
+                    ["volume_spike_enabled", "Volume Spike Following"],
+                    ["liquidity_sniping_enabled", "Liquidity Sniping"],
+                    ["market_making_enabled", "Market Making"],
+                    ["prob_model_enabled", "Probability Model"],
+                  ] as const).map(([key, label]) => (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between rounded-lg border border-[#E6E4DF] bg-[#F0EEEA] px-4 py-3"
+                    >
+                      <Label className="text-[#1A1A19]">{label}</Label>
+                      <Switch
+                        checked={config.strategy[key]}
+                        onCheckedChange={(v) => updateStrategy(key, v)}
+                      />
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>

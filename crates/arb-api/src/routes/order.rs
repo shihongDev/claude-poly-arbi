@@ -16,6 +16,8 @@ use arb_core::traits::RiskManager;
 
 use crate::state::AppState;
 
+use super::helpers::{append_history, broadcast_event, broadcast_positions};
+
 #[derive(Deserialize)]
 pub struct OrderRequest {
     pub token_id: String,
@@ -88,23 +90,9 @@ pub async fn place_order(
         rl.record_execution(&report, ArbType::IntraMarket);
     }
 
-    // Append to execution history
-    if let Ok(mut history) = state.execution_history.write() {
-        history.insert(0, report.clone());
-        history.truncate(500);
-    }
-
-    // Broadcast trade_executed event
+    append_history(&state, &report);
     let _ = broadcast_event(&state, "trade_executed", &report);
-
-    // Broadcast position_update event
-    {
-        let rl = state.risk_limits.lock().unwrap();
-        if let Ok(tracker) = rl.positions().lock() {
-            let positions: Vec<_> = tracker.all_positions().into_iter().cloned().collect();
-            let _ = broadcast_event(&state, "position_update", &positions);
-        }
-    }
+    broadcast_positions(&state);
 
     info!(
         mode = "paper",
@@ -121,16 +109,5 @@ pub async fn place_order(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("Serialization failed: {e}")})),
         ),
-    }
-}
-
-fn broadcast_event<T: serde::Serialize>(state: &AppState, event_type: &str, data: &T) -> bool {
-    let event = serde_json::json!({
-        "type": event_type,
-        "data": data
-    });
-    match serde_json::to_string(&event) {
-        Ok(json) => state.ws_tx.send(json).is_ok(),
-        Err(_) => false,
     }
 }

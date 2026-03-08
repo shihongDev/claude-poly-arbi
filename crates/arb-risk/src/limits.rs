@@ -290,7 +290,7 @@ pub fn kelly_criterion(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arb_core::{ArbType, Side, TradeLeg};
+    use arb_core::{ArbType, Side, StrategyType, TradeLeg};
     use chrono::Utc;
     use rust_decimal_macros::dec;
     use uuid::Uuid;
@@ -309,6 +309,7 @@ mod tests {
         Opportunity {
             id: Uuid::new_v4(),
             arb_type: ArbType::IntraMarket,
+            strategy_type: StrategyType::IntraMarketArb,
             markets: vec!["cond_abc".into()],
             legs: vec![
                 TradeLeg {

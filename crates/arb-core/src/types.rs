@@ -67,6 +67,67 @@ impl std::fmt::Display for ArbType {
     }
 }
 
+/// Broader strategy categorization covering both structural arb and directional strategies.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StrategyType {
+    #[default]
+    IntraMarketArb,
+    CrossMarketArb,
+    MultiOutcomeArb,
+    ResolutionSniping,
+    LiquiditySniping,
+    MarketMaking,
+    ProbabilityModel,
+    StaleMarket,
+    VolumeSpike,
+}
+
+impl From<ArbType> for StrategyType {
+    fn from(arb: ArbType) -> Self {
+        match arb {
+            ArbType::IntraMarket => Self::IntraMarketArb,
+            ArbType::CrossMarket => Self::CrossMarketArb,
+            ArbType::MultiOutcome => Self::MultiOutcomeArb,
+        }
+    }
+}
+
+
+impl std::fmt::Display for StrategyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IntraMarketArb => write!(f, "intra_market_arb"),
+            Self::CrossMarketArb => write!(f, "cross_market_arb"),
+            Self::MultiOutcomeArb => write!(f, "multi_outcome_arb"),
+            Self::ResolutionSniping => write!(f, "resolution_sniping"),
+            Self::LiquiditySniping => write!(f, "liquidity_sniping"),
+            Self::MarketMaking => write!(f, "market_making"),
+            Self::ProbabilityModel => write!(f, "probability_model"),
+            Self::StaleMarket => write!(f, "stale_market"),
+            Self::VolumeSpike => write!(f, "volume_spike"),
+        }
+    }
+}
+
+/// Actions that strategies can emit back to the engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StrategyAction {
+    Execute(Opportunity),
+    PlaceQuote {
+        market_id: String,
+        token_id: String,
+        side: Side,
+        price: Decimal,
+        size: Decimal,
+    },
+    CancelQuote {
+        order_id: String,
+    },
+    CancelAllQuotes {
+        market_id: String,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Side {
     Buy,
@@ -83,6 +144,8 @@ pub enum TradingMode {
 pub struct Opportunity {
     pub id: Uuid,
     pub arb_type: ArbType,
+    #[serde(default)]
+    pub strategy_type: StrategyType,
     pub markets: Vec<String>,
     pub legs: Vec<TradeLeg>,
     pub gross_edge: Decimal,

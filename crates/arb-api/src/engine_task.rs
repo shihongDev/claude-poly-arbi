@@ -26,9 +26,16 @@ use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
 use arb_strategy::multi_outcome::MultiOutcomeDetector;
+use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
+use arb_strategy::liquidity_sniping::LiquiditySnipingDetector;
+use arb_strategy::market_making::MarketMakingDetector;
+use arb_strategy::prob_model::ProbModelDetector;
+use arb_strategy::stale_market::StaleMarketDetector;
+use arb_strategy::volume_spike::VolumeSpikeDetector;
 use rust_decimal::Decimal;
 use tracing::{debug, error, info, warn};
 
+use crate::routes::helpers::{append_history, broadcast_event};
 use crate::state::AppState;
 
 /// Maximum number of token IDs to fetch orderbooks for in one pass.
@@ -81,14 +88,10 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     if config.strategy.cross_market_enabled {
         let graph = if let Some(ref file) = config.strategy.cross_market.correlation_file {
             let path = ArbConfig::config_dir().join(file);
-            if path.exists() {
-                CorrelationGraph::load(&path).unwrap_or_else(|e| {
-                    warn!("Failed to load correlation file: {e}");
-                    CorrelationGraph::empty()
-                })
-            } else {
+            CorrelationGraph::load(&path).unwrap_or_else(|e| {
+                warn!("Failed to load correlation file: {e}");
                 CorrelationGraph::empty()
-            }
+            })
         } else {
             CorrelationGraph::empty()
         };
@@ -102,6 +105,30 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         )));
     }
 
+    if config.strategy.resolution_sniping_enabled {
+        detectors.push(Box::new(ResolutionSnipingDetector::new(
+            config.strategy.resolution_sniping.clone(),
+            config.strategy.clone(),
+            slippage_estimator.clone(),
+        )));
+    }
+
+    if config.strategy.stale_market_enabled {
+        detectors.push(Box::new(StaleMarketDetector::new(
+            config.strategy.stale_market.clone(),
+            config.strategy.clone(),
+            slippage_estimator.clone(),
+        )));
+    }
+
+    if config.strategy.volume_spike_enabled {
+        detectors.push(Box::new(VolumeSpikeDetector::new(
+            config.strategy.volume_spike.clone(),
+            config.strategy.clone(),
+            slippage_estimator.clone(),
+        )));
+    }
+
     let edge_calculator = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
 
     // Probability estimator (ensemble of MC + particle filter)
@@ -110,6 +137,36 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         config.simulation.particle_count,
     );
     let prob_estimation_enabled = config.simulation.probability_estimation_enabled;
+
+    if config.strategy.prob_model_enabled {
+        // Create a separate estimator instance for the detector
+        let detector_estimator = EnsembleEstimator::from_config(
+            config.simulation.monte_carlo_paths,
+            config.simulation.particle_count,
+        );
+        detectors.push(Box::new(ProbModelDetector::new(
+            config.strategy.prob_model.clone(),
+            config.strategy.clone(),
+            slippage_estimator.clone(),
+            Arc::new(detector_estimator),
+        )));
+    }
+
+    if config.strategy.liquidity_sniping_enabled {
+        detectors.push(Box::new(LiquiditySnipingDetector::new(
+            config.strategy.liquidity_sniping.clone(),
+            config.strategy.clone(),
+            slippage_estimator.clone(),
+        )));
+    }
+
+    if config.strategy.market_making_enabled {
+        detectors.push(Box::new(MarketMakingDetector::new(
+            config.strategy.market_making.clone(),
+            config.strategy.clone(),
+            slippage_estimator.clone(),
+        )));
+    }
 
     // Historical price store (SQLite, append-only)
     let price_store = match PriceHistoryStore::open(
@@ -375,10 +432,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                                 let mut rl = state.risk_limits.lock().unwrap();
                                 rl.record_execution(&report, opp.arb_type);
                             }
-                            if let Ok(mut history) = state.execution_history.write() {
-                                history.insert(0, report.clone());
-                                history.truncate(500);
-                            }
+                            append_history(&state, &report);
                             let _ = broadcast_event(&state, "trade_executed", &report);
                             info!(
                                 opp_id = %opp.id,
@@ -400,10 +454,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                                 let mut rl = state.risk_limits.lock().unwrap();
                                 rl.record_execution(&report, opp.arb_type);
                             }
-                            if let Ok(mut history) = state.execution_history.write() {
-                                history.insert(0, report.clone());
-                                history.truncate(500);
-                            }
+                            append_history(&state, &report);
                             let _ = broadcast_event(&state, "trade_executed", &report);
                             info!(
                                 opp_id = %opp.id,
@@ -500,13 +551,3 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     }
 }
 
-fn broadcast_event<T: serde::Serialize>(state: &AppState, event_type: &str, data: &T) -> bool {
-    let event = serde_json::json!({
-        "type": event_type,
-        "data": data
-    });
-    match serde_json::to_string(&event) {
-        Ok(json) => state.ws_tx.send(json).is_ok(),
-        Err(_) => false,
-    }
-}

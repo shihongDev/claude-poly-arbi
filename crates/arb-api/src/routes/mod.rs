@@ -1,6 +1,7 @@
 pub mod config;
 pub mod control;
 pub mod health;
+pub mod helpers;
 pub mod history;
 pub mod markets;
 pub mod metrics;

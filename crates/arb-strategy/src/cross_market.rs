@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use arb_core::{
-    ArbType, CorrelationRelationship, MarketCorrelation, MarketState, Opportunity, Side, TradeLeg,
+    ArbType, CorrelationRelationship, MarketCorrelation, MarketState, Opportunity, Side,
+    StrategyType, TradeLeg,
     config::{CrossMarketConfig, StrategyConfig},
     error::Result,
     traits::{ArbDetector, SlippageEstimator},
@@ -244,6 +245,7 @@ impl CrossMarketDetector {
             opps.push(Opportunity {
                 id: Uuid::new_v4(),
                 arb_type: ArbType::CrossMarket,
+                strategy_type: StrategyType::CrossMarketArb,
                 markets: vec![
                     market_a.condition_id.clone(),
                     market_b.condition_id.clone(),
