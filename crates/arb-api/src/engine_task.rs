@@ -7,7 +7,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arb_core::config::ArbConfig;
-use arb_core::traits::{ArbDetector, MarketDataSource, ProbabilityEstimator, RiskManager, SlippageEstimator, TradeExecutor};
+use arb_core::traits::{
+    ArbDetector, MarketDataSource, ProbabilityEstimator, RiskManager, SlippageEstimator,
+    TradeExecutor,
+};
 use arb_core::types::{ArbType, RiskDecision};
 use arb_data::correlation::CorrelationGraph;
 use arb_data::local_book::OrderBookStore;
@@ -17,19 +20,19 @@ use arb_data::poller::{
 };
 use arb_data::vwap_cache::CachedSlippageEstimator;
 use arb_data::ws_feed::{BookUpdate, WsFeedClient};
-use tokio::sync::mpsc;
 use arb_simulation::estimator::EnsembleEstimator;
 use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
-use arb_strategy::multi_outcome::MultiOutcomeDetector;
-use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
 use arb_strategy::liquidity_sniping::LiquiditySnipingDetector;
 use arb_strategy::market_making::MarketMakingDetector;
+use arb_strategy::multi_outcome::MultiOutcomeDetector;
 use arb_strategy::prob_model::ProbModelDetector;
+use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
 use arb_strategy::stale_market::StaleMarketDetector;
 use arb_strategy::volume_spike::VolumeSpikeDetector;
 use rust_decimal::Decimal;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::routes::helpers::{append_history, broadcast_event};
@@ -58,9 +61,9 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
     let mut poller = MarketPoller::new(config.polling.clone());
     let fetch_config = ConcurrentFetchConfig::default();
 
-    let cached_estimator = Arc::new(CachedSlippageEstimator::new(
-        OrderbookProcessor::new(config.slippage.clone()),
-    ));
+    let cached_estimator = Arc::new(CachedSlippageEstimator::new(OrderbookProcessor::new(
+        config.slippage.clone(),
+    )));
     let slippage_estimator: Arc<dyn SlippageEstimator> = cached_estimator.clone();
 
     // Build detectors
@@ -178,15 +181,15 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
     info!("Engine: fetching initial market data from Polymarket...");
     match data_source.fetch_all_active_markets().await {
         Ok(markets) => {
-            info!(count = markets.len(), "Engine: initial market fetch complete");
+            info!(
+                count = markets.len(),
+                "Engine: initial market fetch complete"
+            );
             state.market_cache.update(&markets);
 
             // Immediately broadcast top markets to frontend (before orderbook fetch)
             // so the UI populates within seconds, not minutes
-            let top_markets: Vec<_> = markets
-                .iter()
-                .take(MAX_WS_BULK_MARKETS)
-                .collect::<Vec<_>>();
+            let top_markets: Vec<_> = markets.iter().take(MAX_WS_BULK_MARKETS).collect::<Vec<_>>();
             info!(
                 count = top_markets.len(),
                 "Engine: broadcasting initial markets to clients"
@@ -256,12 +259,7 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
     let (ws_update_tx, mut ws_update_rx) = mpsc::channel::<BookUpdate>(1000);
 
     // Collect token IDs from classified markets for WS subscription (limit to 200)
-    let hot_tokens: Vec<String> = classified
-        .all_token_ids
-        .iter()
-        .take(200)
-        .cloned()
-        .collect();
+    let hot_tokens: Vec<String> = classified.all_token_ids.iter().take(200).cloned().collect();
 
     let ws_client = WsFeedClient::new(Arc::clone(&book_store), ws_update_tx);
     let _ws_sub_tx = ws_client.spawn(hot_tokens.clone());
@@ -276,7 +274,10 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
 
     loop {
         // Check kill switch (lock-free atomic read — no mutex needed on hot path)
-        if state.kill_switch_active.load(std::sync::atomic::Ordering::Relaxed) {
+        if state
+            .kill_switch_active
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         }
@@ -359,7 +360,10 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
         // Enrich opportunities with ensemble probability estimates
         if prob_estimation_enabled {
             for opp in &mut opportunities {
-                if let Some(market) = opp.markets.first().and_then(|cid| state.market_cache.get(cid))
+                if let Some(market) = opp
+                    .markets
+                    .first()
+                    .and_then(|cid| state.market_cache.get(cid))
                     && let Ok(est) = prob_estimator.estimate(&market)
                 {
                     opp.confidence = est.probabilities.first().copied().unwrap_or(0.0);
@@ -526,4 +530,3 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
-

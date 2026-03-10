@@ -7,13 +7,13 @@ use arb_core::traits::{ArbDetector, MarketDataSource, SlippageEstimator};
 use arb_core::{MarketState, Opportunity};
 use arb_data::market_cache::MarketCache;
 use arb_data::orderbook::OrderbookProcessor;
-use arb_data::poller::{classify_markets, ConcurrentFetchConfig, SdkMarketDataSource};
+use arb_data::poller::{ConcurrentFetchConfig, SdkMarketDataSource, classify_markets};
 use arb_strategy::deadline::DeadlineMonotonicityDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
 use arb_strategy::multi_outcome::MultiOutcomeDetector;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use tracing::info;
 
 /// One-shot scan: fetch all markets, run detectors, print opportunities.
@@ -42,7 +42,10 @@ pub async fn execute() -> anyhow::Result<()> {
         markets_with_books.push(Arc::new(m));
     }
 
-    println!("Fetched orderbooks for {} markets\n", markets_with_books.len());
+    println!(
+        "Fetched orderbooks for {} markets\n",
+        markets_with_books.len()
+    );
 
     // Set up detectors
     let slippage_estimator: Arc<dyn SlippageEstimator> =
@@ -93,12 +96,12 @@ pub async fn execute() -> anyhow::Result<()> {
 
     // Print results
     if all_opportunities.is_empty() {
-        println!("No arbitrage opportunities found above {}bps minimum edge.", config.strategy.min_edge_bps);
-    } else {
         println!(
-            "Found {} opportunities:\n",
-            all_opportunities.len()
+            "No arbitrage opportunities found above {}bps minimum edge.",
+            config.strategy.min_edge_bps
         );
+    } else {
+        println!("Found {} opportunities:\n", all_opportunities.len());
         println!(
             "{:<8} {:<15} {:<12} {:<12} {:<10} {:<8} {:<36}",
             "Type", "Market", "Gross Edge", "Net Edge", "Edge BPS", "Size", "ID"
@@ -196,7 +199,9 @@ pub async fn execute_comprehensive(
     );
 
     // ── Phase 2: Fetch all orderbooks concurrently ─────────────────────
-    println!("\n[2/4] Fetching orderbooks concurrently (max_concurrent={max_concurrent}, timeout={timeout_secs}s)...");
+    println!(
+        "\n[2/4] Fetching orderbooks concurrently (max_concurrent={max_concurrent}, timeout={timeout_secs}s)..."
+    );
 
     let fetch_config = ConcurrentFetchConfig {
         max_concurrent,
@@ -302,7 +307,11 @@ pub async fn execute_comprehensive(
                 .first()
                 .map(|m| m.question.as_str())
                 .unwrap_or("?");
-            eprintln!("  Deadline: {} inversions in group starting with '{}'", opps.len(), prefix);
+            eprintln!(
+                "  Deadline: {} inversions in group starting with '{}'",
+                opps.len(),
+                prefix
+            );
         }
         for opp in opps {
             let question = find_question_arc(&enriched_markets, &opp);
@@ -336,7 +345,10 @@ pub async fn execute_comprehensive(
     let display_list: &[(Opportunity, String)] = if above_threshold.is_empty() {
         // Show "near-miss" list (all detections)
         if all_opportunities.is_empty() {
-            println!("No arbitrage opportunities detected across {} markets.", markets.len());
+            println!(
+                "No arbitrage opportunities detected across {} markets.",
+                markets.len()
+            );
         } else {
             println!(
                 "No opportunities above {}bps threshold. Showing {} near-miss detections:\n",
@@ -482,10 +494,7 @@ fn group_by_event_prefix(markets: &[MarketState]) -> Vec<Vec<MarketState>> {
         }
     }
 
-    groups
-        .into_values()
-        .filter(|g| g.len() >= 2)
-        .collect()
+    groups.into_values().filter(|g| g.len() >= 2).collect()
 }
 
 /// Compute VWAP edge in basis points at each size tier for an opportunity.
@@ -548,9 +557,19 @@ fn compute_market_summary(
     let mut rows = Vec::new();
 
     for (category, filter_fn) in [
-        ("binary", (|m: &&Arc<MarketState>| !m.neg_risk && m.token_ids.len() == 2) as fn(&&Arc<MarketState>) -> bool),
-        ("neg_risk", (|m: &&Arc<MarketState>| m.neg_risk) as fn(&&Arc<MarketState>) -> bool),
-        ("all", (|_: &&Arc<MarketState>| true) as fn(&&Arc<MarketState>) -> bool),
+        (
+            "binary",
+            (|m: &&Arc<MarketState>| !m.neg_risk && m.token_ids.len() == 2)
+                as fn(&&Arc<MarketState>) -> bool,
+        ),
+        (
+            "neg_risk",
+            (|m: &&Arc<MarketState>| m.neg_risk) as fn(&&Arc<MarketState>) -> bool,
+        ),
+        (
+            "all",
+            (|_: &&Arc<MarketState>| true) as fn(&&Arc<MarketState>) -> bool,
+        ),
     ] {
         let subset: Vec<&Arc<MarketState>> = markets.iter().filter(filter_fn).collect();
         if subset.is_empty() {
@@ -563,10 +582,7 @@ fn compute_market_summary(
         let mut profile_count = 0_usize;
 
         for m in &subset {
-            total_volume += m
-                .volume_24hr
-                .and_then(|v| v.to_f64())
-                .unwrap_or(0.0);
+            total_volume += m.volume_24hr.and_then(|v| v.to_f64()).unwrap_or(0.0);
 
             for tid in &m.token_ids {
                 if let Some(book) = orderbook_map.get(tid) {

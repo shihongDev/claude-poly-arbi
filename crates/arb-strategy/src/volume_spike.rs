@@ -57,9 +57,7 @@ impl VolumeSpikeDetector {
         // Update rolling history and compute average
         let avg_volume = {
             let mut history = self.volume_history.lock().unwrap();
-            let entries = history
-                .entry(market.condition_id.clone())
-                .or_default();
+            let entries = history.entry(market.condition_id.clone()).or_default();
 
             entries.push_back(current_volume);
 
@@ -82,10 +80,7 @@ impl VolumeSpikeDetector {
             return Ok(opps);
         }
 
-        let ratio = current_volume
-            .to_f64()
-            .unwrap_or(0.0)
-            / avg_volume.to_f64().unwrap_or(1.0);
+        let ratio = current_volume.to_f64().unwrap_or(0.0) / avg_volume.to_f64().unwrap_or(1.0);
 
         if ratio < self.config.spike_multiplier {
             return Ok(opps); // no spike
@@ -102,13 +97,20 @@ impl VolumeSpikeDetector {
         };
 
         let book = match market.orderbooks.get(outcome_idx) {
-            Some(b) if (!b.asks.is_empty() && side == Side::Buy)
-                    || (!b.bids.is_empty() && side == Side::Sell) => b,
+            Some(b)
+                if (!b.asks.is_empty() && side == Side::Buy)
+                    || (!b.bids.is_empty() && side == Side::Sell) =>
+            {
+                b
+            }
             _ => return Ok(opps),
         };
 
         let target_size = self.config.max_position;
-        let vwap = match self.slippage_estimator.estimate_vwap(book, side, target_size) {
+        let vwap = match self
+            .slippage_estimator
+            .estimate_vwap(book, side, target_size)
+        {
             Ok(v) => v,
             Err(_) => return Ok(opps),
         };
@@ -131,7 +133,11 @@ impl VolumeSpikeDetector {
             return Ok(opps);
         }
 
-        let token_id = market.token_ids.get(outcome_idx).cloned().unwrap_or_default();
+        let token_id = market
+            .token_ids
+            .get(outcome_idx)
+            .cloned()
+            .unwrap_or_default();
 
         debug!(
             market = %market.condition_id,
@@ -149,7 +155,11 @@ impl VolumeSpikeDetector {
             legs: vec![TradeLeg {
                 token_id,
                 side,
-                target_price: market.outcome_prices.get(outcome_idx).copied().unwrap_or_default(),
+                target_price: market
+                    .outcome_prices
+                    .get(outcome_idx)
+                    .copied()
+                    .unwrap_or_default(),
                 target_size: actual_size,
                 vwap_estimate: vwap.vwap,
             }],
@@ -227,8 +237,14 @@ mod tests {
             outcome_prices: vec![dec!(0.60), dec!(0.40)],
             orderbooks: vec![OrderbookSnapshot {
                 token_id: "yes_tok".into(),
-                bids: vec![OrderbookLevel { price: dec!(0.59), size: dec!(500) }],
-                asks: vec![OrderbookLevel { price: dec!(0.60), size: dec!(500) }],
+                bids: vec![OrderbookLevel {
+                    price: dec!(0.59),
+                    size: dec!(500),
+                }],
+                asks: vec![OrderbookLevel {
+                    price: dec!(0.60),
+                    size: dec!(500),
+                }],
                 timestamp: Utc::now(),
             }],
             volume_24hr: Some(volume),

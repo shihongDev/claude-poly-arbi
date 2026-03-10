@@ -52,15 +52,14 @@ impl MarketCache {
 
     /// Get a market by condition_id (cheap Arc clone).
     pub fn get(&self, condition_id: &str) -> Option<Arc<MarketState>> {
-        self.markets.get(condition_id).map(|r| Arc::clone(r.value()))
+        self.markets
+            .get(condition_id)
+            .map(|r| Arc::clone(r.value()))
     }
 
     /// Return all cached markets (cheap Arc clones).
     pub fn all_markets(&self) -> Vec<Arc<MarketState>> {
-        self.markets
-            .iter()
-            .map(|r| Arc::clone(r.value()))
-            .collect()
+        self.markets.iter().map(|r| Arc::clone(r.value())).collect()
     }
 
     /// Return only active markets (cheap Arc clones).
@@ -159,7 +158,11 @@ mod tests {
     #[test]
     fn test_active_filter() {
         let cache = MarketCache::new();
-        cache.update(&[make_market("a", true), make_market("b", false), make_market("c", true)]);
+        cache.update(&[
+            make_market("a", true),
+            make_market("b", false),
+            make_market("c", true),
+        ]);
         let active = cache.active_markets();
         assert_eq!(active.len(), 2);
     }

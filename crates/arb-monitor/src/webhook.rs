@@ -84,8 +84,12 @@ impl WebhookAlerter {
         let formatted = Self::format_message(level, category, message);
 
         match level {
-            AlertLevel::Critical => warn!(webhook_alert = %formatted, "Sending critical webhook alert"),
-            AlertLevel::Warning => info!(webhook_alert = %formatted, "Sending warning webhook alert"),
+            AlertLevel::Critical => {
+                warn!(webhook_alert = %formatted, "Sending critical webhook alert")
+            }
+            AlertLevel::Warning => {
+                info!(webhook_alert = %formatted, "Sending warning webhook alert")
+            }
             AlertLevel::Info => info!(webhook_alert = %formatted, "Sending info webhook alert"),
         }
 
@@ -182,11 +186,7 @@ mod tests {
 
     #[test]
     fn test_is_configured_telegram_only() {
-        let alerter = WebhookAlerter::new(
-            None,
-            Some("bot123:ABC".into()),
-            Some("987654".into()),
-        );
+        let alerter = WebhookAlerter::new(None, Some("bot123:ABC".into()), Some("987654".into()));
         assert!(alerter.is_configured());
     }
 
@@ -269,12 +269,18 @@ mod tests {
 
         // All first sends should succeed
         for cat in &categories {
-            assert!(alerter.should_send(cat), "First send for {cat} should succeed");
+            assert!(
+                alerter.should_send(cat),
+                "First send for {cat} should succeed"
+            );
         }
 
         // All second sends should be rate-limited
         for cat in &categories {
-            assert!(!alerter.should_send(cat), "Second send for {cat} should be rate-limited");
+            assert!(
+                !alerter.should_send(cat),
+                "Second send for {cat} should be rate-limited"
+            );
         }
     }
 

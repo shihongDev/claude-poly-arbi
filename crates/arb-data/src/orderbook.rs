@@ -1,7 +1,7 @@
 use arb_core::{
     OrderChunk, OrderbookLevel, OrderbookSnapshot, Side, VwapEstimate,
-    error::{ArbError, Result},
     config::SlippageConfig,
+    error::{ArbError, Result},
     traits::SlippageEstimator,
 };
 use chrono::Utc;
@@ -48,9 +48,9 @@ impl OrderbookProcessor {
                         price: p.parse().map_err(|e| {
                             ArbError::Orderbook(format!("Invalid price '{p}': {e}"))
                         })?,
-                        size: s.parse().map_err(|e| {
-                            ArbError::Orderbook(format!("Invalid size '{s}': {e}"))
-                        })?,
+                        size: s
+                            .parse()
+                            .map_err(|e| ArbError::Orderbook(format!("Invalid size '{s}': {e}")))?,
                     })
                 })
                 .collect()
@@ -85,13 +85,14 @@ impl OrderbookProcessor {
         sizes
             .iter()
             .map(|&size| {
-                self.estimate_vwap(book, side, size).unwrap_or(VwapEstimate {
-                    vwap: Decimal::ZERO,
-                    total_size: Decimal::ZERO,
-                    levels_consumed: 0,
-                    max_available: Decimal::ZERO,
-                    slippage_bps: Decimal::ZERO,
-                })
+                self.estimate_vwap(book, side, size)
+                    .unwrap_or(VwapEstimate {
+                        vwap: Decimal::ZERO,
+                        total_size: Decimal::ZERO,
+                        levels_consumed: 0,
+                        max_available: Decimal::ZERO,
+                        slippage_bps: Decimal::ZERO,
+                    })
             })
             .collect()
     }
@@ -322,10 +323,7 @@ mod tests {
 
     #[test]
     fn test_vwap_sell() {
-        let book = make_book(
-            &[(dec!(0.60), dec!(100)), (dec!(0.58), dec!(100))],
-            &[],
-        );
+        let book = make_book(&[(dec!(0.60), dec!(100)), (dec!(0.58), dec!(100))], &[]);
         let proc = default_processor();
 
         // Sell 150: 100 @ 0.60 + 50 @ 0.58
@@ -409,11 +407,7 @@ mod tests {
             ],
         );
         let proc = default_processor();
-        let tiers = proc.estimate_vwap_tiers(
-            &book,
-            Side::Buy,
-            &[dec!(100), dec!(300), dec!(1000)],
-        );
+        let tiers = proc.estimate_vwap_tiers(&book, Side::Buy, &[dec!(100), dec!(300), dec!(1000)]);
 
         assert_eq!(tiers.len(), 3);
 

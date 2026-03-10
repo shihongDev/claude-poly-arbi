@@ -1,10 +1,10 @@
 use std::time::Instant;
 
 use arb_execution::auth;
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 
 use crate::state::AppState;
 
@@ -16,9 +16,7 @@ use crate::state::AppState;
 /// 3. Optionally places a tiny order guaranteed not to fill, then cancels it
 ///
 /// If not in live mode, returns early with a SKIP result.
-pub async fn verify_live(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn verify_live(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.read().unwrap().clone();
 
     // If not in live mode, skip
@@ -128,8 +126,8 @@ pub async fn verify_live(
         .unwrap_or(rust_decimal::Decimal::new(5, 2)); // 0.05 fallback
 
     // Price 5 ticks below best bid (each tick = 0.01)
-    let order_price = (best_bid - rust_decimal::Decimal::new(5, 2))
-        .max(rust_decimal::Decimal::new(1, 2)); // min 0.01
+    let order_price =
+        (best_bid - rust_decimal::Decimal::new(5, 2)).max(rust_decimal::Decimal::new(1, 2)); // min 0.01
     let order_size = rust_decimal::Decimal::new(1, 2); // 0.01 USDC
 
     // Step 3: Place a tiny limit order

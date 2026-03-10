@@ -16,10 +16,7 @@ pub struct StressTestRequest {
 
 /// Extract a numeric parameter from the params map, falling back to a default.
 fn param_f64(params: &serde_json::Map<String, serde_json::Value>, key: &str, default: f64) -> f64 {
-    params
-        .get(key)
-        .and_then(|v| v.as_f64())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
 }
 
 pub async fn run_stress_test(
@@ -30,7 +27,11 @@ pub async fn run_stress_test(
         let rl = state.risk_limits.lock().unwrap();
         let positions_arc = rl.positions();
         let tracker = positions_arc.lock().unwrap();
-        tracker.all_positions().into_iter().cloned().collect::<Vec<_>>()
+        tracker
+            .all_positions()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>()
     };
 
     let (impact, max_loss, at_risk, details) = match req.scenario.as_str() {
@@ -45,11 +46,13 @@ pub async fn run_stress_test(
 
             let total_exposure: Decimal = positions.iter().map(|p| p.size * p.current_price).sum();
             let impact_dec = Decimal::from_f64_retain(-impact_frac).unwrap_or(Decimal::new(-5, 2));
-            let max_loss_dec = Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-12, 2));
+            let max_loss_dec =
+                Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-12, 2));
             let impact = total_exposure * impact_dec;
             let max_loss = total_exposure * max_loss_dec;
             let at_risk = positions.len();
-            let details = format!("Simulated {depth_pct:.0}% depth reduction across all active orderbooks");
+            let details =
+                format!("Simulated {depth_pct:.0}% depth reduction across all active orderbooks");
             (impact, max_loss, at_risk, details)
         }
         "correlation_spike" => {
@@ -61,11 +64,13 @@ pub async fn run_stress_test(
 
             let total_exposure: Decimal = positions.iter().map(|p| p.size * p.current_price).sum();
             let impact_dec = Decimal::from_f64_retain(-impact_frac).unwrap_or(Decimal::new(-3, 2));
-            let max_loss_dec = Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-8, 2));
+            let max_loss_dec =
+                Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-8, 2));
             let impact = total_exposure * impact_dec;
             let max_loss = total_exposure * max_loss_dec;
             let at_risk = positions.len();
-            let details = format!("Simulated correlation increase to {corr:.2} across correlated pairs");
+            let details =
+                format!("Simulated correlation increase to {corr:.2} across correlated pairs");
             (impact, max_loss, at_risk, details)
         }
         "flash_crash" => {
@@ -77,11 +82,14 @@ pub async fn run_stress_test(
 
             let total_exposure: Decimal = positions.iter().map(|p| p.size * p.current_price).sum();
             let impact_dec = Decimal::from_f64_retain(-move_frac).unwrap_or(Decimal::new(-15, 2));
-            let max_loss_dec = Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-25, 2));
+            let max_loss_dec =
+                Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-25, 2));
             let impact = total_exposure * impact_dec;
             let max_loss = total_exposure * max_loss_dec;
             let at_risk = positions.len();
-            let details = format!("Simulated {move_pct:.0}% adverse move across all positions simultaneously");
+            let details = format!(
+                "Simulated {move_pct:.0}% adverse move across all positions simultaneously"
+            );
             (impact, max_loss, at_risk, details)
         }
         "kill_switch_delay" => {
@@ -93,11 +101,16 @@ pub async fn run_stress_test(
 
             let total_exposure: Decimal = positions.iter().map(|p| p.size * p.current_price).sum();
             let impact_dec = Decimal::from_f64_retain(-impact_frac).unwrap_or(Decimal::new(-1, 2));
-            let max_loss_dec = Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-4, 2));
+            let max_loss_dec =
+                Decimal::from_f64_retain(-max_loss_frac).unwrap_or(Decimal::new(-4, 2));
             let impact = total_exposure * impact_dec;
             let max_loss = total_exposure * max_loss_dec;
-            let at_risk = positions.iter().filter(|p| p.unrealized_pnl < Decimal::ZERO).count();
-            let details = format!("Simulated {delay:.0} second delay before kill switch activation");
+            let at_risk = positions
+                .iter()
+                .filter(|p| p.unrealized_pnl < Decimal::ZERO)
+                .count();
+            let details =
+                format!("Simulated {delay:.0} second delay before kill switch activation");
             (impact, max_loss, at_risk, details)
         }
         _ => {
@@ -125,9 +138,7 @@ pub async fn run_stress_test(
     (StatusCode::OK, Json(result)).into_response()
 }
 
-pub async fn simulation_status(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn simulation_status(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.read().unwrap();
 
     // Build estimates from top markets
@@ -138,8 +149,14 @@ pub async fn simulation_status(
         .map(|m| {
             let market_price = m.outcome_prices.first().copied().unwrap_or_default();
             let price_f64 = market_price.to_f64().unwrap_or(0.5);
-            let ci_lo = (market_price - Decimal::new(5, 2)).max(Decimal::ZERO).to_f64().unwrap_or(0.0);
-            let ci_hi = (market_price + Decimal::new(5, 2)).min(Decimal::ONE).to_f64().unwrap_or(1.0);
+            let ci_lo = (market_price - Decimal::new(5, 2))
+                .max(Decimal::ZERO)
+                .to_f64()
+                .unwrap_or(0.0);
+            let ci_hi = (market_price + Decimal::new(5, 2))
+                .min(Decimal::ONE)
+                .to_f64()
+                .unwrap_or(1.0);
             serde_json::json!({
                 "condition_id": m.condition_id,
                 "market_price": price_f64,

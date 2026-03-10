@@ -1,10 +1,6 @@
 use std::sync::Arc;
 
-use arb_core::{
-    Opportunity, TradeLeg, Side,
-    error::Result,
-    traits::SlippageEstimator,
-};
+use arb_core::{Opportunity, Side, TradeLeg, error::Result, traits::SlippageEstimator};
 use arb_data::impact::MarketImpactEstimator;
 use arb_data::market_cache::MarketCache;
 use rust_decimal::Decimal;
@@ -69,16 +65,12 @@ impl EdgeCalculator {
             // Find the orderbook for this token in the cached markets
             let market = cached_markets
                 .iter()
-                .find_map(|m| {
-                    m.orderbooks
-                        .iter()
-                        .find(|ob| ob.token_id == leg.token_id)
-                });
+                .find_map(|m| m.orderbooks.iter().find(|ob| ob.token_id == leg.token_id));
 
             if let Some(book) = market {
-                let vwap_est = self
-                    .slippage_estimator
-                    .estimate_vwap(book, leg.side, leg.target_size)?;
+                let vwap_est =
+                    self.slippage_estimator
+                        .estimate_vwap(book, leg.side, leg.target_size)?;
 
                 leg.vwap_estimate = vwap_est.vwap;
                 estimated_vwaps.push(vwap_est.vwap);
@@ -110,12 +102,8 @@ impl EdgeCalculator {
                 if let Some(ms) = market_state
                     && let Some(book) = ms.orderbooks.iter().find(|ob| ob.token_id == leg.token_id)
                 {
-                    let estimate = impact_est.estimate(
-                        book,
-                        leg.side,
-                        leg.target_size,
-                        ms.volume_24hr,
-                    );
+                    let estimate =
+                        impact_est.estimate(book, leg.side, leg.target_size, ms.volume_24hr);
                     // Convert impact_bps to a dollar cost on this leg's notional
                     let leg_notional = leg.vwap_estimate * leg.target_size;
                     total_impact_cost += leg_notional * estimate.impact_bps / Decimal::from(10_000);
@@ -166,8 +154,7 @@ impl EdgeCalculator {
         confidence: f64,
         loss_factor: f64,
     ) -> Decimal {
-        Self::confidence_adjusted_edge(net_edge, confidence, loss_factor)
-            * Decimal::from(10_000)
+        Self::confidence_adjusted_edge(net_edge, confidence, loss_factor) * Decimal::from(10_000)
     }
 }
 
@@ -224,7 +211,10 @@ mod tests {
         // 200bps edge, 90% confidence, 1.5x loss factor
         let adj = EdgeCalculator::confidence_adjusted_edge(dec!(0.02), 0.9, 1.5);
         // expected = 0.02 * 0.9 - 0.02 * 0.1 * 1.5 = 0.018 - 0.003 = 0.015
-        assert!(adj > Decimal::ZERO, "High confidence should be profitable: {adj}");
+        assert!(
+            adj > Decimal::ZERO,
+            "High confidence should be profitable: {adj}"
+        );
         assert!((adj - dec!(0.015)).abs() < dec!(0.001));
     }
 
@@ -233,7 +223,10 @@ mod tests {
         // 200bps edge, 30% confidence, 1.5x loss factor
         let adj = EdgeCalculator::confidence_adjusted_edge(dec!(0.02), 0.3, 1.5);
         // expected = 0.02 * 0.3 - 0.02 * 0.7 * 1.5 = 0.006 - 0.021 = -0.015
-        assert!(adj < Decimal::ZERO, "Low confidence should be negative: {adj}");
+        assert!(
+            adj < Decimal::ZERO,
+            "Low confidence should be negative: {adj}"
+        );
     }
 
     #[test]
@@ -242,7 +235,10 @@ mod tests {
         // 0 = net_edge * c - net_edge * (1-c) * loss_factor
         // c = loss_factor / (1 + loss_factor) = 1.5 / 2.5 = 0.6
         let adj = EdgeCalculator::confidence_adjusted_edge(dec!(0.02), 0.6, 1.5);
-        assert!(adj.abs() < dec!(0.001), "Should be near zero at breakeven: {adj}");
+        assert!(
+            adj.abs() < dec!(0.001),
+            "Should be near zero at breakeven: {adj}"
+        );
     }
 
     #[test]

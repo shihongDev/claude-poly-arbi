@@ -40,10 +40,7 @@ impl StaleMarketDetector {
     }
 
     /// Check if any market's orderbook is stale relative to siblings.
-    fn check_event_group(
-        &self,
-        group: &[&MarketState],
-    ) -> Result<Vec<Opportunity>> {
+    fn check_event_group(&self, group: &[&MarketState]) -> Result<Vec<Opportunity>> {
         let mut opps = Vec::new();
         if group.len() < 2 {
             return Ok(opps);
@@ -113,7 +110,10 @@ impl StaleMarketDetector {
             };
 
             let target_size = Decimal::from(200); // conservative
-            let vwap = match self.slippage_estimator.estimate_vwap(book, side, target_size) {
+            let vwap = match self
+                .slippage_estimator
+                .estimate_vwap(book, side, target_size)
+            {
                 Ok(v) => v,
                 Err(_) => continue,
             };
@@ -128,7 +128,8 @@ impl StaleMarketDetector {
             }
 
             // Confidence based on staleness and divergence magnitude
-            let confidence = 0.55 + 0.15 * (stale_hours as f64 / 48.0).min(1.0)
+            let confidence = 0.55
+                + 0.15 * (stale_hours as f64 / 48.0).min(1.0)
                 + 0.10 * (divergence_bps as f64 / 200.0).min(1.0);
             let confidence = confidence.clamp(0.50, 0.85);
 
@@ -147,7 +148,11 @@ impl StaleMarketDetector {
                 "Stale market opportunity detected"
             );
 
-            let token_id = stale_candidate.token_ids.first().cloned().unwrap_or_default();
+            let token_id = stale_candidate
+                .token_ids
+                .first()
+                .cloned()
+                .unwrap_or_default();
 
             opps.push(Opportunity {
                 id: Uuid::new_v4(),
@@ -187,7 +192,10 @@ impl ArbDetector for StaleMarketDetector {
 
         for market in markets {
             if let Some(ref eid) = market.event_id {
-                by_event.entry(eid.as_str()).or_default().push(market.as_ref());
+                by_event
+                    .entry(eid.as_str())
+                    .or_default()
+                    .push(market.as_ref());
             }
         }
 
@@ -237,7 +245,12 @@ mod tests {
         }
     }
 
-    fn make_market(cond_id: &str, event_id: &str, yes_price: Decimal, stale_hours: i64) -> MarketState {
+    fn make_market(
+        cond_id: &str,
+        event_id: &str,
+        yes_price: Decimal,
+        stale_hours: i64,
+    ) -> MarketState {
         let book_time = Utc::now() - chrono::Duration::hours(stale_hours);
         MarketState {
             condition_id: cond_id.to_string(),
@@ -247,8 +260,14 @@ mod tests {
             outcome_prices: vec![yes_price, dec!(1.00) - yes_price],
             orderbooks: vec![OrderbookSnapshot {
                 token_id: format!("{cond_id}_yes"),
-                bids: vec![OrderbookLevel { price: yes_price - dec!(0.01), size: dec!(500) }],
-                asks: vec![OrderbookLevel { price: yes_price, size: dec!(500) }],
+                bids: vec![OrderbookLevel {
+                    price: yes_price - dec!(0.01),
+                    size: dec!(500),
+                }],
+                asks: vec![OrderbookLevel {
+                    price: yes_price,
+                    size: dec!(500),
+                }],
                 timestamp: book_time,
             }],
             volume_24hr: Some(dec!(5000)),

@@ -1,5 +1,5 @@
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use arb_core::config::ArbConfig;
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 use crate::state::AppState;
 
@@ -37,5 +37,9 @@ pub async fn update_config(
         tracing::warn!(error = %e, "Config updated in-memory but failed to persist to disk");
     }
 
-    (StatusCode::OK, Json(serde_json::json!({"status": "updated"}))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"status": "updated"})),
+    )
+        .into_response()
 }

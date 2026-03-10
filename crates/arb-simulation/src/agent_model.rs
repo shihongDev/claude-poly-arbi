@@ -510,16 +510,9 @@ mod tests {
         let mut no_contrarian_finals = Vec::with_capacity(n_runs);
 
         for _ in 0..n_runs {
-            let sim_c = AgentSimulation::new_with_agents(
-                agents_with_contrarian.clone(),
-                0.50,
-                50,
-            );
-            let sim_n = AgentSimulation::new_with_agents(
-                agents_without_contrarian.clone(),
-                0.50,
-                50,
-            );
+            let sim_c = AgentSimulation::new_with_agents(agents_with_contrarian.clone(), 0.50, 50);
+            let sim_n =
+                AgentSimulation::new_with_agents(agents_without_contrarian.clone(), 0.50, 50);
 
             let tc = sim_c.run();
             let tn = sim_n.run();
@@ -582,11 +575,7 @@ mod tests {
 
         // All prices should be in valid range
         for &p in &trace.prices {
-            assert!(
-                p >= 0.01 && p <= 0.99,
-                "Price out of range: {}",
-                p
-            );
+            assert!(p >= 0.01 && p <= 0.99, "Price out of range: {}", p);
         }
 
         // Price should move toward fair value (0.65) from initial (0.50)

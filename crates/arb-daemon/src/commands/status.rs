@@ -11,7 +11,10 @@ pub async fn execute() -> anyhow::Result<()> {
     let mut ks = KillSwitch::new();
     ks.check();
     if ks.is_active() {
-        println!("Kill Switch:  ACTIVE ({})", ks.reason().unwrap_or("unknown"));
+        println!(
+            "Kill Switch:  ACTIVE ({})",
+            ks.reason().unwrap_or("unknown")
+        );
     } else {
         println!("Kill Switch:  inactive");
     }

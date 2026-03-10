@@ -256,10 +256,7 @@ impl SdkMarketDataSource {
         }
 
         // outcome_prices is Option<Vec<Decimal>> — already parsed
-        let outcome_prices: Vec<Decimal> = market
-            .outcome_prices
-            .clone()
-            .unwrap_or_default();
+        let outcome_prices: Vec<Decimal> = market.outcome_prices.clone().unwrap_or_default();
 
         // outcomes is Option<Vec<String>> — already parsed
         let outcomes: Vec<String> = market.outcomes.clone().unwrap_or_default();
@@ -317,15 +314,9 @@ impl SdkMarketDataSource {
                 .closed(false)
                 .build();
 
-            let sdk_markets = self
-                .gamma_client
-                .markets(&request)
-                .await
-                .map_err(|e| {
-                    ArbError::MarketData(format!(
-                        "Failed to fetch markets (offset={offset}): {e}"
-                    ))
-                })?;
+            let sdk_markets = self.gamma_client.markets(&request).await.map_err(|e| {
+                ArbError::MarketData(format!("Failed to fetch markets (offset={offset}): {e}"))
+            })?;
 
             let page_count = sdk_markets.len();
 

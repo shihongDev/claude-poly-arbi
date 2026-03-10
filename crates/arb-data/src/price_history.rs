@@ -5,8 +5,8 @@
 //! a configurable retention window (default 30 days).
 
 use chrono::{DateTime, TimeZone, Utc};
-use rust_decimal::Decimal;
 use rusqlite::{Connection, params};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
@@ -298,10 +298,7 @@ impl PriceHistoryStore {
         }
 
         // Compute log returns: ln(price[i+1] / price[i])
-        let log_returns: Vec<f64> = prices
-            .windows(2)
-            .map(|w| (w[1] / w[0]).ln())
-            .collect();
+        let log_returns: Vec<f64> = prices.windows(2).map(|w| (w[1] / w[0]).ln()).collect();
 
         if log_returns.is_empty() {
             return None;
@@ -367,10 +364,7 @@ impl PriceHistoryStore {
         let cutoff = Utc::now() - chrono::Duration::days(i64::from(retention_days));
         let cutoff_ms = cutoff.timestamp_millis();
 
-        let deleted = conn.execute(
-            "DELETE FROM price_ticks WHERE ts < ?1",
-            params![cutoff_ms],
-        )?;
+        let deleted = conn.execute("DELETE FROM price_ticks WHERE ts < ?1", params![cutoff_ms])?;
 
         Ok(deleted)
     }
@@ -378,7 +372,8 @@ impl PriceHistoryStore {
     /// Count total ticks in the database.
     pub fn tick_count(&self) -> anyhow::Result<usize> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM price_ticks", [], |row| row.get(0))?;
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM price_ticks", [], |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -597,14 +592,9 @@ mod tests {
             let base_ts = Utc::now().timestamp_millis();
 
             // Insert ticks at known offsets: -3h, -2h, -1h, now
-            for (i, offset_ms) in [
-                -3 * 3600 * 1000i64,
-                -2 * 3600 * 1000,
-                -1 * 3600 * 1000,
-                0,
-            ]
-            .iter()
-            .enumerate()
+            for (i, offset_ms) in [-3 * 3600 * 1000i64, -2 * 3600 * 1000, -1 * 3600 * 1000, 0]
+                .iter()
+                .enumerate()
             {
                 conn.execute(
                     "INSERT INTO price_ticks (condition_id, token_id, price, best_bid, best_ask, volume_24h, ts)
@@ -744,12 +734,13 @@ mod tests {
         let ticks = store.get_recent("cid_unknown", 10).unwrap();
         assert!(ticks.is_empty());
 
-        let history = store.get_history(
-            "cid_unknown",
-            Utc::now() - chrono::Duration::hours(1),
-            Utc::now(),
-        )
-        .unwrap();
+        let history = store
+            .get_history(
+                "cid_unknown",
+                Utc::now() - chrono::Duration::hours(1),
+                Utc::now(),
+            )
+            .unwrap();
         assert!(history.is_empty());
     }
 
@@ -882,10 +873,7 @@ mod tests {
 
         // Query volatility for a condition_id with no data
         let vol = store.realized_volatility("cid_nonexistent", 30);
-        assert!(
-            vol.is_none(),
-            "Unknown condition_id should return None"
-        );
+        assert!(vol.is_none(), "Unknown condition_id should return None");
     }
 
     // ---------------------------------------------------------------
@@ -897,14 +885,32 @@ mod tests {
         use arb_core::{OrderbookLevel, OrderbookSnapshot};
 
         let bids = vec![
-            OrderbookLevel { price: dec!(0.58), size: dec!(100) },
-            OrderbookLevel { price: dec!(0.57), size: dec!(200) },
-            OrderbookLevel { price: dec!(0.56), size: dec!(300) },
+            OrderbookLevel {
+                price: dec!(0.58),
+                size: dec!(100),
+            },
+            OrderbookLevel {
+                price: dec!(0.57),
+                size: dec!(200),
+            },
+            OrderbookLevel {
+                price: dec!(0.56),
+                size: dec!(300),
+            },
         ];
         let asks = vec![
-            OrderbookLevel { price: dec!(0.62), size: dec!(150) },
-            OrderbookLevel { price: dec!(0.63), size: dec!(250) },
-            OrderbookLevel { price: dec!(0.64), size: dec!(350) },
+            OrderbookLevel {
+                price: dec!(0.62),
+                size: dec!(150),
+            },
+            OrderbookLevel {
+                price: dec!(0.63),
+                size: dec!(250),
+            },
+            OrderbookLevel {
+                price: dec!(0.64),
+                size: dec!(350),
+            },
         ];
 
         let ob = OrderbookSnapshot {
@@ -947,7 +953,9 @@ mod tests {
 
         let since = Utc::now() - chrono::Duration::minutes(1);
         let until = Utc::now() + chrono::Duration::minutes(1);
-        let snapshots = store.get_orderbook_snapshots("cid_ob_1", since, until).unwrap();
+        let snapshots = store
+            .get_orderbook_snapshots("cid_ob_1", since, until)
+            .unwrap();
 
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].condition_id, "cid_ob_1");
@@ -968,7 +976,9 @@ mod tests {
 
         let since = Utc::now() - chrono::Duration::minutes(1);
         let until = Utc::now() + chrono::Duration::minutes(1);
-        let snapshots = store.get_orderbook_snapshots("cid_no_ob", since, until).unwrap();
+        let snapshots = store
+            .get_orderbook_snapshots("cid_no_ob", since, until)
+            .unwrap();
         assert!(snapshots.is_empty());
     }
 
@@ -1006,7 +1016,9 @@ mod tests {
 
         let since = Utc::now() - chrono::Duration::minutes(1);
         let until = Utc::now() + chrono::Duration::minutes(1);
-        let snapshots = store.get_orderbook_snapshots("cid_deep", since, until).unwrap();
+        let snapshots = store
+            .get_orderbook_snapshots("cid_deep", since, until)
+            .unwrap();
 
         assert_eq!(snapshots.len(), 1);
         // Should be truncated to top 10

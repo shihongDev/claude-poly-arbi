@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use arb_core::{
     ExecutionReport, FillStatus, LegReport, OpenOrder, Opportunity, Position, Side, TradingMode,
-    error::Result,
-    traits::TradeExecutor,
+    error::Result, traits::TradeExecutor,
 };
 use arb_data::impact::MarketImpactEstimator;
 use async_trait::async_trait;
@@ -94,7 +93,14 @@ impl PaperTradeExecutor {
         }
     }
 
-    fn update_position(&self, token_id: &str, condition_id: &str, side: Side, size: Decimal, price: Decimal) {
+    fn update_position(
+        &self,
+        token_id: &str,
+        condition_id: &str,
+        side: Side,
+        size: Decimal,
+        price: Decimal,
+    ) {
         let mut positions = self.positions.lock().unwrap();
         let pos = positions
             .entry(token_id.to_string())
@@ -177,7 +183,13 @@ impl TradeExecutor for PaperTradeExecutor {
             total_fees += fee;
 
             // Update virtual positions
-            self.update_position(&leg.token_id, &condition_id, leg.side, leg.target_size, fill_price);
+            self.update_position(
+                &leg.token_id,
+                &condition_id,
+                leg.side,
+                leg.target_size,
+                fill_price,
+            );
         }
 
         // Realized edge = gross edge - actual slippage - fees
@@ -227,7 +239,13 @@ impl TradeExecutor for PaperTradeExecutor {
     }
 
     async fn open_orders(&self) -> Result<Vec<OpenOrder>> {
-        Ok(self.placed_orders.lock().unwrap().values().cloned().collect())
+        Ok(self
+            .placed_orders
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect())
     }
 
     async fn execute_batch(&self, opps: &[Opportunity]) -> Result<Vec<ExecutionReport>> {

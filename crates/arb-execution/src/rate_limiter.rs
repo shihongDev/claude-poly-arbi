@@ -131,10 +131,7 @@ mod tests {
 
         // Should be able to acquire all 10 tokens
         for i in 0..10 {
-            assert!(
-                limiter.try_acquire(),
-                "should succeed on token {i}"
-            );
+            assert!(limiter.try_acquire(), "should succeed on token {i}");
         }
     }
 

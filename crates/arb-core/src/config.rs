@@ -548,7 +548,10 @@ impl ArbConfig {
         let path = Self::default_path();
         if path.exists() {
             Self::load_from(&path).unwrap_or_else(|e| {
-                tracing::warn!("Failed to load config from {}: {e}. Using defaults.", path.display());
+                tracing::warn!(
+                    "Failed to load config from {}: {e}. Using defaults.",
+                    path.display()
+                );
                 Self::default()
             })
         } else {
@@ -590,18 +593,42 @@ impl ArbConfig {
     /// Clone this config and apply sandbox overrides on top.
     pub fn with_overrides(&self, ov: &crate::types::SandboxConfigOverrides) -> Self {
         let mut c = self.clone();
-        if let Some(v) = ov.min_edge_bps { c.strategy.min_edge_bps = v; }
-        if let Some(v) = ov.intra_market_enabled { c.strategy.intra_market_enabled = v; }
-        if let Some(v) = ov.cross_market_enabled { c.strategy.cross_market_enabled = v; }
-        if let Some(v) = ov.multi_outcome_enabled { c.strategy.multi_outcome_enabled = v; }
-        if let Some(v) = ov.intra_min_deviation { c.strategy.intra_market.min_deviation = v; }
-        if let Some(v) = ov.cross_min_implied_edge { c.strategy.cross_market.min_implied_edge = v; }
-        if let Some(v) = ov.multi_min_deviation { c.strategy.multi_outcome.min_deviation = v; }
-        if let Some(v) = ov.max_slippage_bps { c.slippage.max_slippage_bps = v; }
-        if let Some(v) = ov.vwap_depth_levels { c.slippage.vwap_depth_levels = v; }
-        if let Some(v) = ov.max_position_per_market { c.risk.max_position_per_market = v; }
-        if let Some(v) = ov.max_total_exposure { c.risk.max_total_exposure = v; }
-        if let Some(v) = ov.daily_loss_limit { c.risk.daily_loss_limit = v; }
+        if let Some(v) = ov.min_edge_bps {
+            c.strategy.min_edge_bps = v;
+        }
+        if let Some(v) = ov.intra_market_enabled {
+            c.strategy.intra_market_enabled = v;
+        }
+        if let Some(v) = ov.cross_market_enabled {
+            c.strategy.cross_market_enabled = v;
+        }
+        if let Some(v) = ov.multi_outcome_enabled {
+            c.strategy.multi_outcome_enabled = v;
+        }
+        if let Some(v) = ov.intra_min_deviation {
+            c.strategy.intra_market.min_deviation = v;
+        }
+        if let Some(v) = ov.cross_min_implied_edge {
+            c.strategy.cross_market.min_implied_edge = v;
+        }
+        if let Some(v) = ov.multi_min_deviation {
+            c.strategy.multi_outcome.min_deviation = v;
+        }
+        if let Some(v) = ov.max_slippage_bps {
+            c.slippage.max_slippage_bps = v;
+        }
+        if let Some(v) = ov.vwap_depth_levels {
+            c.slippage.vwap_depth_levels = v;
+        }
+        if let Some(v) = ov.max_position_per_market {
+            c.risk.max_position_per_market = v;
+        }
+        if let Some(v) = ov.max_total_exposure {
+            c.risk.max_total_exposure = v;
+        }
+        if let Some(v) = ov.daily_loss_limit {
+            c.risk.daily_loss_limit = v;
+        }
         c
     }
 

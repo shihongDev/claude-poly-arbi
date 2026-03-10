@@ -1,13 +1,13 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use alloy::primitives::U256;
+use alloy::signers::local::PrivateKeySigner;
 use arb_core::{
     ExecutionReport, FillStatus, LegReport, OpenOrder, Opportunity, Side, TradingMode,
     error::{ArbError, Result},
     traits::TradeExecutor,
 };
-use alloy::primitives::U256;
-use alloy::signers::local::PrivateKeySigner;
 use async_trait::async_trait;
 use chrono::Utc;
 use polymarket_client_sdk::auth::Normal;
@@ -60,7 +60,12 @@ impl LiveTradeExecutor {
         order_timeout_secs: u64,
     ) -> Result<Self> {
         let (client, signer) = auth::authenticate_from_key_file(key_path).await?;
-        Ok(Self::new(client, signer, prefer_post_only, order_timeout_secs))
+        Ok(Self::new(
+            client,
+            signer,
+            prefer_post_only,
+            order_timeout_secs,
+        ))
     }
 
     /// Returns a reference to the signer for order signing.
@@ -95,8 +100,9 @@ impl LiveTradeExecutor {
         );
 
         // Parse the string token_id into the SDK's U256 type
-        let token_id = U256::from_str(&leg.token_id)
-            .map_err(|e| ArbError::Execution(format!("Invalid token ID '{}': {e}", leg.token_id)))?;
+        let token_id = U256::from_str(&leg.token_id).map_err(|e| {
+            ArbError::Execution(format!("Invalid token ID '{}': {e}", leg.token_id))
+        })?;
 
         // Wrap the entire build → sign → post sequence in a timeout
         let timeout_dur = Duration::from_secs(self.order_timeout_secs);
@@ -234,8 +240,8 @@ impl TradeExecutor for LiveTradeExecutor {
         for leg in &opp.legs {
             let report = self.execute_leg(leg).await?;
 
-            let slippage = (report.actual_fill_price - report.expected_vwap).abs()
-                * report.filled_size;
+            let slippage =
+                (report.actual_fill_price - report.expected_vwap).abs() * report.filled_size;
             let fee = report.filled_size * report.actual_fill_price * dec!(0.02);
 
             total_slippage += slippage;

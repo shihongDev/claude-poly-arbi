@@ -21,10 +21,10 @@ use arb_strategy::prob_model::ProbModelDetector;
 use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
 use arb_strategy::stale_market::StaleMarketDetector;
 use arb_strategy::volume_spike::VolumeSpikeDetector;
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -46,9 +46,9 @@ pub async fn detect(
     let base_config = state.config.read().unwrap().clone();
     let config = base_config.with_overrides(&req.config_overrides);
 
-    let estimator = Arc::new(CachedSlippageEstimator::new(
-        OrderbookProcessor::new(config.slippage.clone()),
-    ));
+    let estimator = Arc::new(CachedSlippageEstimator::new(OrderbookProcessor::new(
+        config.slippage.clone(),
+    )));
     let slippage: Arc<dyn SlippageEstimator> = estimator;
 
     let mut detectors: Vec<Box<dyn ArbDetector>> = Vec::new();
@@ -107,9 +107,7 @@ pub async fn detect(
             slippage.clone(),
         )));
     }
-    if config.strategy.prob_model_enabled
-        && state.prob_estimator.get().is_some()
-    {
+    if config.strategy.prob_model_enabled && state.prob_estimator.get().is_some() {
         // Create a fresh estimator for the sandbox (don't share mutable state)
         let sandbox_estimator = EnsembleEstimator::from_config(
             config.simulation.monte_carlo_paths,
@@ -151,7 +149,9 @@ pub async fn detect(
 
     for m in &markets {
         let has_books = !m.orderbooks.is_empty()
-            && m.orderbooks.iter().any(|b| !b.asks.is_empty() || !b.bids.is_empty());
+            && m.orderbooks
+                .iter()
+                .any(|b| !b.asks.is_empty() || !b.bids.is_empty());
         if has_books {
             markets_with_orderbooks += 1;
         }
@@ -275,15 +275,21 @@ pub async fn backtest(
         let below_min_edge = edge_bps.abs() < min_edge_bps;
 
         let (included, rejection_reason) = if below_min_edge {
-            (false, Some(format!(
-                "edge {edge_bps} below min_edge_bps ({})",
-                config.strategy.min_edge_bps
-            )))
+            (
+                false,
+                Some(format!(
+                    "edge {edge_bps} below min_edge_bps ({})",
+                    config.strategy.min_edge_bps
+                )),
+            )
         } else if would_exceed_exposure {
-            (false, Some(format!(
-                "would exceed max_total_exposure ({})",
-                config.risk.max_total_exposure
-            )))
+            (
+                false,
+                Some(format!(
+                    "would exceed max_total_exposure ({})",
+                    config.risk.max_total_exposure
+                )),
+            )
         } else {
             (true, None)
         };
@@ -418,9 +424,9 @@ pub async fn backtest_historical(
     let bucket_entries: Vec<_> = bucket_map.into_iter().take(max_buckets).collect();
 
     // Set up detectors for scanning
-    let estimator = Arc::new(CachedSlippageEstimator::new(
-        OrderbookProcessor::new(config.slippage.clone()),
-    ));
+    let estimator = Arc::new(CachedSlippageEstimator::new(OrderbookProcessor::new(
+        config.slippage.clone(),
+    )));
     let slippage: Arc<dyn SlippageEstimator> = estimator;
 
     let mut detectors: Vec<Box<dyn ArbDetector>> = Vec::new();
@@ -513,8 +519,7 @@ pub async fn backtest_historical(
             }
         }
 
-        let markets: Vec<Arc<MarketState>> =
-            market_map.into_values().map(Arc::new).collect();
+        let markets: Vec<Arc<MarketState>> = market_map.into_values().map(Arc::new).collect();
 
         // Run detectors
         let mut bucket_opps: Vec<Opportunity> = Vec::new();

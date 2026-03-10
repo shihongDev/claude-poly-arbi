@@ -8,18 +8,18 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Instant;
 
+use arb_core::ExecutionReport;
 use arb_core::config::ArbConfig;
 use arb_core::traits::TradeExecutor;
-use arb_core::ExecutionReport;
 use arb_data::market_cache::MarketCache;
 use arb_data::price_history::PriceHistoryStore;
 use arb_risk::limits::RiskLimits;
 use arb_risk::position_tracker::PositionTracker;
-use axum::routing::{delete, get, post};
 use axum::Router;
+use axum::routing::{delete, get, post};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::state::AppState;
 
@@ -174,10 +174,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/orders",
             get(routes::orders::list_orders).delete(routes::orders::cancel_all_orders),
         )
-        .route(
-            "/api/orders/{id}",
-            delete(routes::orders::cancel_order),
-        )
+        .route("/api/orders/{id}", delete(routes::orders::cancel_order))
         .route("/api/kill", post(routes::control::kill))
         .route("/api/resume", post(routes::control::resume))
         .route(

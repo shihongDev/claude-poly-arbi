@@ -5,8 +5,8 @@
 //! - **Orderbook depth walk**: temporary impact from consuming visible liquidity (VWAP-based)
 
 use arb_core::{OrderbookSnapshot, Side};
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 /// Estimates market impact for prospective orders.
 pub struct MarketImpactEstimator {
@@ -94,8 +94,7 @@ impl MarketImpactEstimator {
         // Depth-based impact: how far the effective price moved from best
         let best_price = levels.first().map(|l| l.price).unwrap_or(Decimal::ZERO);
         let depth_impact_bps = if best_price > Decimal::ZERO {
-            (effective_price - best_price).abs() / best_price
-                * Decimal::from(10_000)
+            (effective_price - best_price).abs() / best_price * Decimal::from(10_000)
         } else {
             Decimal::ZERO
         };
@@ -142,8 +141,14 @@ mod tests {
     fn test_single_level_full_fill() {
         let estimator = MarketImpactEstimator::default_config();
         let book = make_book(
-            vec![OrderbookLevel { price: dec!(0.58), size: dec!(500) }],
-            vec![OrderbookLevel { price: dec!(0.62), size: dec!(500) }],
+            vec![OrderbookLevel {
+                price: dec!(0.58),
+                size: dec!(500),
+            }],
+            vec![OrderbookLevel {
+                price: dec!(0.62),
+                size: dec!(500),
+            }],
         );
 
         // Buy 200 from a single ask level at 0.62 — no price impact
@@ -159,9 +164,18 @@ mod tests {
         let book = make_book(
             vec![],
             vec![
-                OrderbookLevel { price: dec!(0.62), size: dec!(100) },
-                OrderbookLevel { price: dec!(0.64), size: dec!(100) },
-                OrderbookLevel { price: dec!(0.68), size: dec!(100) },
+                OrderbookLevel {
+                    price: dec!(0.62),
+                    size: dec!(100),
+                },
+                OrderbookLevel {
+                    price: dec!(0.64),
+                    size: dec!(100),
+                },
+                OrderbookLevel {
+                    price: dec!(0.68),
+                    size: dec!(100),
+                },
             ],
         );
 
@@ -186,18 +200,16 @@ mod tests {
             vec![],
             vec![
                 // Very deep book — depth impact negligible
-                OrderbookLevel { price: dec!(0.50), size: dec!(1_000_000) },
+                OrderbookLevel {
+                    price: dec!(0.50),
+                    size: dec!(1_000_000),
+                },
             ],
         );
 
         // Small order relative to book, but large relative to daily volume
         // kyle_impact_bps = 1.0 * (1000 / 2000) * 10000 = 5000 bps
-        let est = estimator.estimate(
-            &book,
-            Side::Buy,
-            dec!(1000),
-            Some(dec!(2000)),
-        );
+        let est = estimator.estimate(&book, Side::Buy, dec!(1000), Some(dec!(2000)));
 
         // Depth impact is ~0 bps (single deep level), so Kyle should dominate
         assert!(est.impact_bps >= dec!(4999));
@@ -209,12 +221,19 @@ mod tests {
         let estimator = MarketImpactEstimator::default_config();
         let book = make_book(
             vec![
-                OrderbookLevel { price: dec!(0.58), size: dec!(100) },
-                OrderbookLevel { price: dec!(0.56), size: dec!(100) },
+                OrderbookLevel {
+                    price: dec!(0.58),
+                    size: dec!(100),
+                },
+                OrderbookLevel {
+                    price: dec!(0.56),
+                    size: dec!(100),
+                },
             ],
-            vec![
-                OrderbookLevel { price: dec!(0.62), size: dec!(500) },
-            ],
+            vec![OrderbookLevel {
+                price: dec!(0.62),
+                size: dec!(500),
+            }],
         );
 
         // Sell 150: fill 100@0.58 + 50@0.56

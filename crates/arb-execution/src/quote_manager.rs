@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use arb_core::{
-    Side, StrategyAction,
-    error::Result,
-};
+use arb_core::{Side, StrategyAction, error::Result};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use tracing::{debug, info};

@@ -9,11 +9,7 @@ pub fn append_history(state: &AppState, report: &ExecutionReport) {
     }
 }
 
-pub fn broadcast_event<T: serde::Serialize>(
-    state: &AppState,
-    event_type: &str,
-    data: &T,
-) -> bool {
+pub fn broadcast_event<T: serde::Serialize>(state: &AppState, event_type: &str, data: &T) -> bool {
     let event = serde_json::json!({
         "type": event_type,
         "data": data

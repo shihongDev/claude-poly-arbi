@@ -207,11 +207,17 @@ impl CrossMarketDetector {
 
         let target_size = Decimal::from(500); // conservative default
 
-        let vwap_a = match self.slippage_estimator.estimate_vwap(book_a, side_a, target_size) {
+        let vwap_a = match self
+            .slippage_estimator
+            .estimate_vwap(book_a, side_a, target_size)
+        {
             Ok(v) => v,
             Err(_) => return Ok(()),
         };
-        let vwap_b = match self.slippage_estimator.estimate_vwap(book_b, side_b, target_size) {
+        let vwap_b = match self
+            .slippage_estimator
+            .estimate_vwap(book_b, side_b, target_size)
+        {
             Ok(v) => v,
             Err(_) => return Ok(()),
         };
@@ -225,8 +231,12 @@ impl CrossMarketDetector {
             // Adjust confidence using t-copula tail dependence when enabled
             let confidence = if self.config.use_copula_correlations {
                 use rust_decimal::prelude::ToPrimitive;
-                let pa = Self::yes_price(market_a).and_then(|p| p.to_f64()).unwrap_or(0.5);
-                let pb = Self::yes_price(market_b).and_then(|p| p.to_f64()).unwrap_or(0.5);
+                let pa = Self::yes_price(market_a)
+                    .and_then(|p| p.to_f64())
+                    .unwrap_or(0.5);
+                let pb = Self::yes_price(market_b)
+                    .and_then(|p| p.to_f64())
+                    .unwrap_or(0.5);
                 Self::copula_confidence_adjustment(pa, pb)
             } else {
                 0.85 // static fallback
@@ -246,10 +256,7 @@ impl CrossMarketDetector {
                 id: Uuid::new_v4(),
                 arb_type: ArbType::CrossMarket,
                 strategy_type: StrategyType::CrossMarketArb,
-                markets: vec![
-                    market_a.condition_id.clone(),
-                    market_b.condition_id.clone(),
-                ],
+                markets: vec![market_a.condition_id.clone(), market_b.condition_id.clone()],
                 legs: vec![
                     TradeLeg {
                         token_id: market_a.token_ids[0].clone(),

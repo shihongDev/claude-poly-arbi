@@ -9,10 +9,8 @@ use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
 
-use arb_core::types::{
-    ArbType, ExecutionReport, FillStatus, LegReport, Side, TradingMode,
-};
 use arb_core::traits::RiskManager;
+use arb_core::types::{ArbType, ExecutionReport, FillStatus, LegReport, Side, TradingMode};
 
 use crate::state::AppState;
 

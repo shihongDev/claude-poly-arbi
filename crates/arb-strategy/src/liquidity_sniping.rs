@@ -2,8 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use arb_core::{
-    ArbType, MarketState, Opportunity, OrderbookSnapshot, Side,
-    StrategyType, TradeLeg,
+    ArbType, MarketState, Opportunity, OrderbookSnapshot, Side, StrategyType, TradeLeg,
     config::{LiquiditySnipingConfig, StrategyConfig},
     error::Result,
     traits::{ArbDetector, SlippageEstimator},
@@ -29,7 +28,8 @@ pub struct LiquiditySnipingDetector {
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
     /// Ring buffer of (total_ask_depth, total_bid_depth) per market per tick
-    depth_history: std::sync::Mutex<std::collections::HashMap<String, VecDeque<(Decimal, Decimal)>>>,
+    depth_history:
+        std::sync::Mutex<std::collections::HashMap<String, VecDeque<(Decimal, Decimal)>>>,
 }
 
 impl LiquiditySnipingDetector {
@@ -65,9 +65,7 @@ impl LiquiditySnipingDetector {
         // Compute averages under lock, then drop it before building opportunities
         let (avg_ask, avg_bid) = {
             let mut history = self.depth_history.lock().unwrap();
-            let window = history
-                .entry(market.condition_id.clone())
-                .or_default();
+            let window = history.entry(market.condition_id.clone()).or_default();
 
             window.push_back((ask_depth, bid_depth));
 
@@ -89,7 +87,10 @@ impl LiquiditySnipingDetector {
                 .fold((Decimal::ZERO, Decimal::ZERO), |(a, b), (ask, bid)| {
                     (a + ask, b + bid)
                 });
-            (sum_ask / Decimal::from(n as u64), sum_bid / Decimal::from(n as u64))
+            (
+                sum_ask / Decimal::from(n as u64),
+                sum_bid / Decimal::from(n as u64),
+            )
         };
 
         let min_depth_pct = self.config.min_depth_change_pct;
@@ -144,7 +145,10 @@ impl LiquiditySnipingDetector {
         }
 
         let target_size = self.config.max_position;
-        let vwap = match self.slippage_estimator.estimate_vwap(book, side, target_size) {
+        let vwap = match self
+            .slippage_estimator
+            .estimate_vwap(book, side, target_size)
+        {
             Ok(v) => v,
             Err(_) => return Ok(None),
         };
@@ -271,8 +275,14 @@ mod tests {
             outcome_prices: vec![dec!(0.50), dec!(0.50)],
             orderbooks: vec![OrderbookSnapshot {
                 token_id: "yes".into(),
-                bids: vec![OrderbookLevel { price: dec!(0.49), size: dec!(500) }],
-                asks: vec![OrderbookLevel { price: dec!(0.50), size: ask_size }],
+                bids: vec![OrderbookLevel {
+                    price: dec!(0.49),
+                    size: dec!(500),
+                }],
+                asks: vec![OrderbookLevel {
+                    price: dec!(0.50),
+                    size: ask_size,
+                }],
                 timestamp: Utc::now(),
             }],
             volume_24hr: Some(dec!(10000)),

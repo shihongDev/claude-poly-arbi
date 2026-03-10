@@ -19,10 +19,10 @@ use arb_risk::limits::RiskLimits;
 use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
-use arb_strategy::multi_outcome::MultiOutcomeDetector;
-use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
 use arb_strategy::liquidity_sniping::LiquiditySnipingDetector;
 use arb_strategy::market_making::MarketMakingDetector;
+use arb_strategy::multi_outcome::MultiOutcomeDetector;
+use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
 use arb_strategy::stale_market::StaleMarketDetector;
 use arb_strategy::volume_spike::VolumeSpikeDetector;
 use rust_decimal::Decimal;
@@ -70,7 +70,9 @@ impl ArbEngine {
         }
 
         if config.strategy.cross_market_enabled {
-            let correlation_graph = if let Some(ref file) = config.strategy.cross_market.correlation_file {
+            let correlation_graph = if let Some(ref file) =
+                config.strategy.cross_market.correlation_file
+            {
                 let path = ArbConfig::config_dir().join(file);
                 if path.exists() {
                     CorrelationGraph::load(&path).unwrap_or_else(|e| {
@@ -78,7 +80,10 @@ impl ArbEngine {
                         CorrelationGraph::empty()
                     })
                 } else {
-                    info!("No correlation file found at {}. Cross-market detection will find no pairs.", path.display());
+                    info!(
+                        "No correlation file found at {}. Cross-market detection will find no pairs.",
+                        path.display()
+                    );
                     CorrelationGraph::empty()
                 }
             } else {
@@ -194,11 +199,7 @@ impl ArbEngine {
 
                 for market in &due_markets {
                     // Fetch fresh orderbooks
-                    match self
-                        .data_source
-                        .fetch_orderbooks(&market.token_ids)
-                        .await
-                    {
+                    match self.data_source.fetch_orderbooks(&market.token_ids).await {
                         Ok(books) => {
                             let mut updated = (**market).clone();
                             updated.orderbooks = books;

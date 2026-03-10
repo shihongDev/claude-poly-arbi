@@ -70,12 +70,7 @@ pub async fn execute(condition_id: &str) -> anyhow::Result<()> {
 
     // ─── Particle Filter ───
     println!("\n--- Particle Filter (sequential update) ---");
-    let mut pf = ParticleFilter::new(
-        config.simulation.particle_count,
-        p,
-        0.05,
-        0.03,
-    );
+    let mut pf = ParticleFilter::new(config.simulation.particle_count, p, 0.05, 0.03);
 
     // Simulate 10 observations at the current price
     for _ in 0..10 {

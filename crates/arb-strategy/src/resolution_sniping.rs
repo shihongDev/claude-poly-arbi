@@ -99,7 +99,10 @@ impl ResolutionSnipingDetector {
 
             // VWAP check at our max position size
             let target_size = self.config.max_position;
-            let vwap = match self.slippage_estimator.estimate_vwap(book, Side::Buy, target_size) {
+            let vwap = match self
+                .slippage_estimator
+                .estimate_vwap(book, Side::Buy, target_size)
+            {
                 Ok(v) => v,
                 Err(_) => continue,
             };

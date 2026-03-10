@@ -60,10 +60,7 @@ impl DeadlineMonotonicityDetector {
                     id: Uuid::new_v4(),
                     arb_type: ArbType::CrossMarket,
                     strategy_type: StrategyType::CrossMarketArb,
-                    markets: vec![
-                        earlier.condition_id.clone(),
-                        later.condition_id.clone(),
-                    ],
+                    markets: vec![earlier.condition_id.clone(), later.condition_id.clone()],
                     legs: vec![
                         TradeLeg {
                             token_id: later.token_ids.first().cloned().unwrap_or_default(),
@@ -145,7 +142,10 @@ mod tests {
         ];
 
         let opps = detector.check_event_group(&markets);
-        assert!(opps.is_empty(), "Monotonically increasing prices should produce no opportunities");
+        assert!(
+            opps.is_empty(),
+            "Monotonically increasing prices should produce no opportunities"
+        );
     }
 
     #[test]
@@ -158,7 +158,11 @@ mod tests {
         ];
 
         let opps = detector.check_event_group(&markets);
-        assert_eq!(opps.len(), 1, "Should detect exactly 1 inversion (March > June)");
+        assert_eq!(
+            opps.len(),
+            1,
+            "Should detect exactly 1 inversion (March > June)"
+        );
 
         let opp = &opps[0];
         assert_eq!(opp.arb_type, ArbType::CrossMarket);
@@ -181,9 +185,9 @@ mod tests {
         let detector = DeadlineMonotonicityDetector::new();
         let markets = vec![
             make_market("march", dec!(0.40)),
-            make_market("june", dec!(0.35)),      // inversion #1: cheaper than March
+            make_market("june", dec!(0.35)), // inversion #1: cheaper than March
             make_market("september", dec!(0.50)),
-            make_market("december", dec!(0.45)),   // inversion #2: cheaper than September
+            make_market("december", dec!(0.45)), // inversion #2: cheaper than September
         ];
 
         let opps = detector.check_event_group(&markets);
@@ -204,18 +208,24 @@ mod tests {
         let markets = vec![make_market("march", dec!(0.30))];
 
         let opps = detector.check_event_group(&markets);
-        assert!(opps.is_empty(), "Single market should produce no opportunities");
+        assert!(
+            opps.is_empty(),
+            "Single market should produce no opportunities"
+        );
     }
 
     #[test]
     fn test_zero_price_skipped() {
         let detector = DeadlineMonotonicityDetector::new();
         let markets = vec![
-            make_market("march", dec!(0.00)),     // zero price
+            make_market("march", dec!(0.00)), // zero price
             make_market("june", dec!(0.25)),
         ];
 
         let opps = detector.check_event_group(&markets);
-        assert!(opps.is_empty(), "Zero earlier price should be skipped (no inversion reported)");
+        assert!(
+            opps.is_empty(),
+            "Zero earlier price should be skipped (no inversion reported)"
+        );
     }
 }

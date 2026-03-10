@@ -1,10 +1,10 @@
 use arb_core::Side;
 use arb_data::impact::MarketImpactEstimator;
 use arb_risk::limits::kelly_criterion;
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 
@@ -37,9 +37,7 @@ pub async fn impact(
 
     // Find the market containing this token_id
     let markets = state.market_cache.all_markets();
-    let market = markets
-        .iter()
-        .find(|m| m.token_ids.contains(&req.token_id));
+    let market = markets.iter().find(|m| m.token_ids.contains(&req.token_id));
 
     let market = match market {
         Some(m) => m,

@@ -5,11 +5,7 @@ mod export;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(
-    name = "arb",
-    about = "Polymarket arbitrage daemon",
-    version
-)]
+#[command(name = "arb", about = "Polymarket arbitrage daemon", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -112,8 +108,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Resume => commands::resume::execute(),
         Commands::History { limit } => commands::history::execute(limit),
         Commands::Config => commands::config::execute(),
-        Commands::Simulate { condition_id } => {
-            commands::simulate::execute(&condition_id).await
-        }
+        Commands::Simulate { condition_id } => commands::simulate::execute(&condition_id).await,
     }
 }

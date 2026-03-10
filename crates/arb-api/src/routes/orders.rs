@@ -1,7 +1,7 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 
 use crate::state::AppState;
 
@@ -27,11 +27,7 @@ pub async fn cancel_order(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     match state.executor.cancel_order(&id).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "cancelled": id })),
-        )
-            .into_response(),
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "cancelled": id }))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),

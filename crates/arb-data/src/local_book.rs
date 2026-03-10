@@ -119,11 +119,7 @@ impl LocalOrderBook {
     }
 
     /// Replace all levels with the given snapshot data.
-    pub fn apply_snapshot(
-        &mut self,
-        bids: Vec<(Decimal, Decimal)>,
-        asks: Vec<(Decimal, Decimal)>,
-    ) {
+    pub fn apply_snapshot(&mut self, bids: Vec<(Decimal, Decimal)>, asks: Vec<(Decimal, Decimal)>) {
         self.bids.clear();
         for (price, size) in bids {
             if !size.is_zero() {

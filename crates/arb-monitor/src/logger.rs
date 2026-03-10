@@ -18,8 +18,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 pub fn init_logging(config: &GeneralConfig) -> Result<Option<WorkerGuard>> {
     let level = &config.log_level;
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
     let is_json = config.log_format == "json";
 
@@ -36,9 +35,8 @@ pub fn init_logging(config: &GeneralConfig) -> Result<Option<WorkerGuard>> {
 
             // Ensure parent directory exists
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    ArbError::Config(format!("Cannot create log directory: {e}"))
-                })?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| ArbError::Config(format!("Cannot create log directory: {e}")))?;
             }
 
             let file_name = path
@@ -60,25 +58,13 @@ pub fn init_logging(config: &GeneralConfig) -> Result<Option<WorkerGuard>> {
                             .with_writer(non_blocking)
                             .with_target(false),
                     )
-                    .with(
-                        fmt::layer()
-                            .compact()
-                            .with_writer(std::io::stderr),
-                    )
+                    .with(fmt::layer().compact().with_writer(std::io::stderr))
                     .init();
             } else {
                 tracing_subscriber::registry()
                     .with(env_filter)
-                    .with(
-                        fmt::layer()
-                            .compact()
-                            .with_writer(non_blocking),
-                    )
-                    .with(
-                        fmt::layer()
-                            .compact()
-                            .with_writer(std::io::stderr),
-                    )
+                    .with(fmt::layer().compact().with_writer(non_blocking))
+                    .with(fmt::layer().compact().with_writer(std::io::stderr))
                     .init();
             }
 

@@ -96,7 +96,12 @@ impl MultiOutcomeDetector {
         // ─── Buy-all: sum of first-outcome ask prices ───
         let ask_prices: Option<Vec<Decimal>> = group
             .iter()
-            .map(|m| m.orderbooks.first().and_then(|b| b.asks.first()).map(|l| l.price))
+            .map(|m| {
+                m.orderbooks
+                    .first()
+                    .and_then(|b| b.asks.first())
+                    .map(|l| l.price)
+            })
             .collect();
 
         if let Some(ref asks) = ask_prices {
@@ -122,11 +127,19 @@ impl MultiOutcomeDetector {
 
                     for (i, market) in group.iter().enumerate() {
                         if let Some(book) = market.orderbooks.first() {
-                            match self.slippage_estimator.estimate_vwap(book, Side::Buy, target_size) {
+                            match self.slippage_estimator.estimate_vwap(
+                                book,
+                                Side::Buy,
+                                target_size,
+                            ) {
                                 Ok(v) => {
                                     vwaps.push(v.vwap);
                                     legs.push(TradeLeg {
-                                        token_id: market.token_ids.first().cloned().unwrap_or_default(),
+                                        token_id: market
+                                            .token_ids
+                                            .first()
+                                            .cloned()
+                                            .unwrap_or_default(),
                                         side: Side::Buy,
                                         target_price: asks[i],
                                         target_size,
@@ -183,7 +196,12 @@ impl MultiOutcomeDetector {
         // ─── Sell-all: sum of first-outcome bid prices ───
         let bid_prices: Option<Vec<Decimal>> = group
             .iter()
-            .map(|m| m.orderbooks.first().and_then(|b| b.bids.first()).map(|l| l.price))
+            .map(|m| {
+                m.orderbooks
+                    .first()
+                    .and_then(|b| b.bids.first())
+                    .map(|l| l.price)
+            })
             .collect();
 
         if let Some(ref bids) = bid_prices {
@@ -208,11 +226,19 @@ impl MultiOutcomeDetector {
 
                     for (i, market) in group.iter().enumerate() {
                         if let Some(book) = market.orderbooks.first() {
-                            match self.slippage_estimator.estimate_vwap(book, Side::Sell, target_size) {
+                            match self.slippage_estimator.estimate_vwap(
+                                book,
+                                Side::Sell,
+                                target_size,
+                            ) {
                                 Ok(v) => {
                                     vwaps.push(v.vwap);
                                     legs.push(TradeLeg {
-                                        token_id: market.token_ids.first().cloned().unwrap_or_default(),
+                                        token_id: market
+                                            .token_ids
+                                            .first()
+                                            .cloned()
+                                            .unwrap_or_default(),
                                         side: Side::Sell,
                                         target_price: bids[i],
                                         target_size,
@@ -326,7 +352,11 @@ impl MultiOutcomeDetector {
                         let mut all_ok = true;
 
                         for (i, book) in market.orderbooks.iter().enumerate() {
-                            match self.slippage_estimator.estimate_vwap(book, Side::Buy, target_size) {
+                            match self.slippage_estimator.estimate_vwap(
+                                book,
+                                Side::Buy,
+                                target_size,
+                            ) {
                                 Ok(v) => {
                                     vwaps.push(v.vwap);
                                     legs.push(TradeLeg {
@@ -412,7 +442,11 @@ impl MultiOutcomeDetector {
                         let mut all_ok = true;
 
                         for (i, book) in market.orderbooks.iter().enumerate() {
-                            match self.slippage_estimator.estimate_vwap(book, Side::Sell, target_size) {
+                            match self.slippage_estimator.estimate_vwap(
+                                book,
+                                Side::Sell,
+                                target_size,
+                            ) {
                                 Ok(v) => {
                                     vwaps.push(v.vwap);
                                     legs.push(TradeLeg {
