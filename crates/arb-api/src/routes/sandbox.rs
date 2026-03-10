@@ -7,10 +7,17 @@ use arb_core::types::{Opportunity, SandboxConfigOverrides};
 use arb_data::correlation::CorrelationGraph;
 use arb_data::orderbook::OrderbookProcessor;
 use arb_data::vwap_cache::CachedSlippageEstimator;
+use arb_simulation::estimator::EnsembleEstimator;
 use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
+use arb_strategy::liquidity_sniping::LiquiditySnipingDetector;
+use arb_strategy::market_making::MarketMakingDetector;
 use arb_strategy::multi_outcome::MultiOutcomeDetector;
+use arb_strategy::prob_model::ProbModelDetector;
+use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
+use arb_strategy::stale_market::StaleMarketDetector;
+use arb_strategy::volume_spike::VolumeSpikeDetector;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -72,6 +79,56 @@ pub async fn detect(
             config.strategy.clone(),
             Arc::new(graph),
             state.market_cache.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.resolution_sniping_enabled {
+        detectors.push(Box::new(ResolutionSnipingDetector::new(
+            config.strategy.resolution_sniping.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.stale_market_enabled {
+        detectors.push(Box::new(StaleMarketDetector::new(
+            config.strategy.stale_market.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.volume_spike_enabled {
+        detectors.push(Box::new(VolumeSpikeDetector::new(
+            config.strategy.volume_spike.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.prob_model_enabled
+        && state.prob_estimator.get().is_some()
+    {
+        // Create a fresh estimator for the sandbox (don't share mutable state)
+        let sandbox_estimator = EnsembleEstimator::from_config(
+            config.simulation.monte_carlo_paths,
+            config.simulation.particle_count,
+        );
+        detectors.push(Box::new(ProbModelDetector::new(
+            config.strategy.prob_model.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+            Arc::new(sandbox_estimator),
+        )));
+    }
+    if config.strategy.liquidity_sniping_enabled {
+        detectors.push(Box::new(LiquiditySnipingDetector::new(
+            config.strategy.liquidity_sniping.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.market_making_enabled {
+        detectors.push(Box::new(MarketMakingDetector::new(
+            config.strategy.market_making.clone(),
+            config.strategy.clone(),
             slippage.clone(),
         )));
     }
@@ -150,6 +207,12 @@ pub async fn detect(
             "intra_market_enabled": config.strategy.intra_market_enabled,
             "cross_market_enabled": config.strategy.cross_market_enabled,
             "multi_outcome_enabled": config.strategy.multi_outcome_enabled,
+            "resolution_sniping_enabled": config.strategy.resolution_sniping_enabled,
+            "stale_market_enabled": config.strategy.stale_market_enabled,
+            "volume_spike_enabled": config.strategy.volume_spike_enabled,
+            "prob_model_enabled": config.strategy.prob_model_enabled,
+            "liquidity_sniping_enabled": config.strategy.liquidity_sniping_enabled,
+            "market_making_enabled": config.strategy.market_making_enabled,
             "intra_min_deviation": config.strategy.intra_market.min_deviation.to_string(),
             "multi_min_deviation": config.strategy.multi_outcome.min_deviation.to_string(),
         },

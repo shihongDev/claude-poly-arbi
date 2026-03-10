@@ -9,15 +9,12 @@ use std::time::Duration;
 use arb_core::config::ArbConfig;
 use arb_core::traits::{ArbDetector, MarketDataSource, ProbabilityEstimator, RiskManager, SlippageEstimator, TradeExecutor};
 use arb_core::types::{ArbType, RiskDecision};
-use arb_execution::executor::LiveTradeExecutor;
-use arb_execution::paper_trade::PaperTradeExecutor;
 use arb_data::correlation::CorrelationGraph;
 use arb_data::local_book::OrderBookStore;
 use arb_data::orderbook::OrderbookProcessor;
 use arb_data::poller::{
     ConcurrentFetchConfig, MarketPoller, SdkMarketDataSource, classify_markets,
 };
-use arb_data::price_history::PriceHistoryStore;
 use arb_data::vwap_cache::CachedSlippageEstimator;
 use arb_data::ws_feed::{BookUpdate, WsFeedClient};
 use tokio::sync::mpsc;
@@ -46,15 +43,15 @@ const MAX_ORDERBOOK_TOKENS: usize = 400;
 const MAX_WS_BULK_MARKETS: usize = 500;
 
 /// Spawn the background engine loop. Shares state with the API handlers.
-pub fn spawn_engine(state: AppState) {
+pub fn spawn_engine(state: AppState, executor: Arc<dyn TradeExecutor>) {
     tokio::spawn(async move {
-        if let Err(e) = run_engine_loop(state).await {
+        if let Err(e) = run_engine_loop(state, executor).await {
             error!(error = %e, "Engine loop exited with error");
         }
     });
 }
 
-async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
+async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> anyhow::Result<()> {
     let config = state.config.read().unwrap().clone();
 
     let data_source = SdkMarketDataSource::new();
@@ -138,6 +135,12 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     );
     let prob_estimation_enabled = config.simulation.probability_estimation_enabled;
 
+    // Seed the AppState's OnceLock so sandbox/detect can access the estimator config
+    let _ = state.prob_estimator.set(EnsembleEstimator::from_config(
+        config.simulation.monte_carlo_paths,
+        config.simulation.particle_count,
+    ));
+
     if config.strategy.prob_model_enabled {
         // Create a separate estimator instance for the detector
         let detector_estimator = EnsembleEstimator::from_config(
@@ -168,41 +171,8 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         )));
     }
 
-    // Historical price store (SQLite, append-only)
-    let price_store = match PriceHistoryStore::open(
-        &ArbConfig::config_dir().join("price_history.db"),
-    ) {
-        Ok(store) => {
-            info!("Engine: price history store opened");
-            Some(store)
-        }
-        Err(e) => {
-            warn!(error = %e, "Engine: failed to open price history store, recording disabled");
-            None
-        }
-    };
-
-    // Create executor based on configured trading mode (paper or live)
-    let executor: Box<dyn TradeExecutor> = if config.is_live() {
-        info!("Starting engine in LIVE trading mode");
-        let key_path = config.general.key_file.as_ref().map(std::path::Path::new);
-        match LiveTradeExecutor::from_key_file(
-            key_path,
-            config.slippage.prefer_post_only,
-            config.risk.order_timeout_secs,
-        )
-        .await
-        {
-            Ok(live) => Box::new(live),
-            Err(e) => {
-                error!("Failed to initialize live executor: {e}. Falling back to paper.");
-                Box::new(PaperTradeExecutor::default_pessimism())
-            }
-        }
-    } else {
-        info!("Starting engine in PAPER trading mode");
-        Box::new(PaperTradeExecutor::default_pessimism())
-    };
+    // Use the shared price store from AppState (created in main.rs)
+    let price_store = state.price_store.clone();
 
     // ── Phase 1: Fetch all active markets (metadata only, no orderbooks) ──
     info!("Engine: fetching initial market data from Polymarket...");
@@ -404,6 +374,12 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             let dereffed: Vec<_> = markets_snapshot.iter().map(|m| (**m).clone()).collect();
             if let Err(e) = store.record_markets(&dereffed) {
                 debug!(error = %e, "Price history recording failed");
+            }
+            // Also record orderbook snapshots
+            for market in &dereffed {
+                if let Err(e) = store.record_orderbook_snapshot(market) {
+                    debug!(error = %e, "Orderbook snapshot recording failed");
+                }
             }
         }
 

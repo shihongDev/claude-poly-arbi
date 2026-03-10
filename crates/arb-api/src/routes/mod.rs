@@ -7,6 +7,7 @@ pub mod markets;
 pub mod metrics;
 pub mod opportunities;
 pub mod order;
+pub mod orders;
 pub mod positions;
 pub mod sandbox;
 pub mod simulate;

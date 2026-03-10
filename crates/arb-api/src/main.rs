@@ -5,15 +5,17 @@ mod ws;
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Instant;
 
 use arb_core::config::ArbConfig;
+use arb_core::traits::TradeExecutor;
 use arb_core::ExecutionReport;
 use arb_data::market_cache::MarketCache;
+use arb_data::price_history::PriceHistoryStore;
 use arb_risk::limits::RiskLimits;
 use arb_risk::position_tracker::PositionTracker;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -93,6 +95,40 @@ async fn main() -> anyhow::Result<()> {
     // Check if the file-based kill switch is already active at startup
     let kill_switch_initial = arb_risk::kill_switch::KillSwitch::new().is_active();
 
+    // ── Create executor based on configured trading mode ─────────
+    let executor: Arc<dyn TradeExecutor> = if config.is_live() {
+        tracing::info!("Starting in LIVE trading mode");
+        let key_path = config.general.key_file.as_ref().map(std::path::Path::new);
+        match arb_execution::executor::LiveTradeExecutor::from_key_file(
+            key_path,
+            config.slippage.prefer_post_only,
+            config.risk.order_timeout_secs,
+        )
+        .await
+        {
+            Ok(live) => Arc::new(live),
+            Err(e) => {
+                tracing::error!("Failed to initialize live executor: {e}. Falling back to paper.");
+                Arc::new(arb_execution::paper_trade::PaperTradeExecutor::default_pessimism())
+            }
+        }
+    } else {
+        tracing::info!("Starting in PAPER trading mode");
+        Arc::new(arb_execution::paper_trade::PaperTradeExecutor::default_pessimism())
+    };
+
+    // ── Open price history store ─────────────────────────────────
+    let price_store = match PriceHistoryStore::open(&config_dir.join("price_history.db")) {
+        Ok(store) => {
+            tracing::info!("Price history store opened");
+            Some(Arc::new(store))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to open price history store");
+            None
+        }
+    };
+
     let state = AppState {
         market_cache: Arc::new(MarketCache::new()),
         risk_limits: Arc::new(Mutex::new(risk_limits)),
@@ -103,6 +139,9 @@ async fn main() -> anyhow::Result<()> {
         execution_history: Arc::new(RwLock::new(initial_history)),
         cached_metrics_json: Arc::new(RwLock::new("{}".to_string())),
         start_time: Instant::now(),
+        executor: executor.clone(),
+        price_store: price_store.clone(),
+        prob_estimator: Arc::new(OnceLock::new()),
     };
 
     let app = Router::new()
@@ -131,6 +170,14 @@ async fn main() -> anyhow::Result<()> {
             get(routes::config::get_config).put(routes::config::update_config),
         )
         .route("/api/order", post(routes::order::place_order))
+        .route(
+            "/api/orders",
+            get(routes::orders::list_orders).delete(routes::orders::cancel_all_orders),
+        )
+        .route(
+            "/api/orders/{id}",
+            delete(routes::orders::cancel_order),
+        )
         .route("/api/kill", post(routes::control::kill))
         .route("/api/resume", post(routes::control::resume))
         .route(
@@ -150,7 +197,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state.clone());
 
     // Spawn background engine that fetches live Polymarket data
-    engine_task::spawn_engine(state.clone());
+    engine_task::spawn_engine(state.clone(), executor);
 
     // ── Periodic auto-save (every 60s) ─────────────────────────
     let autosave_state = state.clone();
