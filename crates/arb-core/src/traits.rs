@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rust_decimal::Decimal;
 use tokio::sync::{mpsc, watch};
 
-use crate::error::Result;
+use crate::error::{ArbError, Result};
 use crate::types::*;
 
 #[async_trait]
@@ -42,6 +42,31 @@ pub trait TradeExecutor: Send + Sync {
     async fn execute_opportunity(&self, opp: &Opportunity) -> Result<ExecutionReport>;
     async fn cancel_all(&self) -> Result<()>;
     fn mode(&self) -> TradingMode;
+
+    /// Cancel a single resting order by ID.
+    async fn cancel_order(&self, _order_id: &str) -> Result<()> {
+        Err(ArbError::Execution("cancel_order not supported".into()))
+    }
+
+    /// Cancel multiple resting orders by ID.
+    async fn cancel_orders(&self, _order_ids: &[String]) -> Result<()> {
+        Err(ArbError::Execution("cancel_orders not supported".into()))
+    }
+
+    /// Execute a batch of opportunities, returning a report for each.
+    /// Default implementation calls `execute_opportunity` sequentially.
+    async fn execute_batch(&self, opps: &[Opportunity]) -> Result<Vec<ExecutionReport>> {
+        let mut reports = Vec::with_capacity(opps.len());
+        for opp in opps {
+            reports.push(self.execute_opportunity(opp).await?);
+        }
+        Ok(reports)
+    }
+
+    /// List all open (resting) orders.
+    async fn open_orders(&self) -> Result<Vec<OpenOrder>> {
+        Ok(Vec::new())
+    }
 }
 
 pub trait RiskManager: Send + Sync {
