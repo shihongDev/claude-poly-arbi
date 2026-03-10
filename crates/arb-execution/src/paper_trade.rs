@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use arb_core::{
-    ExecutionReport, FillStatus, LegReport, Opportunity, Position, Side, TradingMode,
+    ExecutionReport, FillStatus, LegReport, OpenOrder, Opportunity, Position, Side, TradingMode,
     error::Result,
     traits::TradeExecutor,
 };
@@ -21,6 +21,7 @@ use uuid::Uuid;
 pub struct PaperTradeExecutor {
     positions: Mutex<HashMap<String, Position>>,
     trade_log: Mutex<Vec<ExecutionReport>>,
+    placed_orders: Mutex<HashMap<String, OpenOrder>>,
     /// Multiply VWAP slippage by this factor (e.g., 1.2 = assume 20% worse fills than estimated).
     pessimism_factor: Decimal,
 }
@@ -30,6 +31,7 @@ impl PaperTradeExecutor {
         Self {
             positions: Mutex::new(HashMap::new()),
             trade_log: Mutex::new(Vec::new()),
+            placed_orders: Mutex::new(HashMap::new()),
             pessimism_factor,
         }
     }
@@ -126,8 +128,10 @@ impl TradeExecutor for PaperTradeExecutor {
             // Fee: 2% on notional
             let fee = leg.target_size * fill_price * dec!(0.02);
 
+            let order_id = Uuid::new_v4().to_string();
+
             leg_reports.push(LegReport {
-                order_id: Uuid::new_v4().to_string(),
+                order_id: order_id.clone(),
                 token_id: leg.token_id.clone(),
                 condition_id: condition_id.clone(),
                 side: leg.side,
@@ -136,6 +140,21 @@ impl TradeExecutor for PaperTradeExecutor {
                 filled_size: leg.target_size,
                 status: FillStatus::FullyFilled,
             });
+
+            // Track the order for cancel/open_orders support
+            self.placed_orders.lock().unwrap().insert(
+                order_id.clone(),
+                OpenOrder {
+                    order_id,
+                    token_id: leg.token_id.clone(),
+                    condition_id: condition_id.clone(),
+                    side: leg.side,
+                    price: fill_price,
+                    original_size: leg.target_size,
+                    remaining_size: leg.target_size,
+                    created_at: Utc::now(),
+                },
+            );
 
             total_slippage += slippage * leg.target_size;
             total_fees += fee;
@@ -173,9 +192,33 @@ impl TradeExecutor for PaperTradeExecutor {
         Ok(report)
     }
 
-    async fn cancel_all(&self) -> Result<()> {
-        info!(mode = "paper", "Cancel all (no-op in paper mode)");
+    async fn cancel_order(&self, order_id: &str) -> Result<()> {
+        self.placed_orders.lock().unwrap().remove(order_id);
+        info!(mode = "paper", order_id, "Paper order cancelled");
         Ok(())
+    }
+
+    async fn cancel_all(&self) -> Result<()> {
+        let count = {
+            let mut orders = self.placed_orders.lock().unwrap();
+            let n = orders.len();
+            orders.clear();
+            n
+        };
+        info!(mode = "paper", count, "All paper orders cancelled");
+        Ok(())
+    }
+
+    async fn open_orders(&self) -> Result<Vec<OpenOrder>> {
+        Ok(self.placed_orders.lock().unwrap().values().cloned().collect())
+    }
+
+    async fn execute_batch(&self, opps: &[Opportunity]) -> Result<Vec<ExecutionReport>> {
+        let mut reports = Vec::with_capacity(opps.len());
+        for opp in opps {
+            reports.push(self.execute_opportunity(opp).await?);
+        }
+        Ok(reports)
     }
 
     fn mode(&self) -> TradingMode {

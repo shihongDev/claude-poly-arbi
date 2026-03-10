@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use arb_core::{
-    ExecutionReport, FillStatus, LegReport, Opportunity, Side, TradingMode,
+    ExecutionReport, FillStatus, LegReport, OpenOrder, Opportunity, Side, TradingMode,
     error::{ArbError, Result},
     traits::TradeExecutor,
 };
@@ -269,6 +269,25 @@ impl TradeExecutor for LiveTradeExecutor {
         })
     }
 
+    async fn cancel_order(&self, order_id: &str) -> Result<()> {
+        info!(order_id, "Cancelling order");
+        self.clob_client
+            .cancel_order(order_id)
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to cancel order {order_id}: {e}")))?;
+        Ok(())
+    }
+
+    async fn cancel_orders(&self, order_ids: &[String]) -> Result<()> {
+        info!(count = order_ids.len(), "Cancelling multiple orders");
+        let refs: Vec<&str> = order_ids.iter().map(String::as_str).collect();
+        self.clob_client
+            .cancel_orders(&refs)
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to cancel orders: {e}")))?;
+        Ok(())
+    }
+
     async fn cancel_all(&self) -> Result<()> {
         info!("Cancelling all open orders");
 
@@ -279,6 +298,20 @@ impl TradeExecutor for LiveTradeExecutor {
 
         info!("All orders cancelled");
         Ok(())
+    }
+
+    async fn open_orders(&self) -> Result<Vec<OpenOrder>> {
+        Err(ArbError::Execution(
+            "open_orders not yet wired to SDK".into(),
+        ))
+    }
+
+    async fn execute_batch(&self, opps: &[Opportunity]) -> Result<Vec<ExecutionReport>> {
+        let mut reports = Vec::with_capacity(opps.len());
+        for opp in opps {
+            reports.push(self.execute_opportunity(opp).await?);
+        }
+        Ok(reports)
     }
 
     fn mode(&self) -> TradingMode {
