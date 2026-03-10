@@ -186,6 +186,13 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/sandbox/detect", post(routes::sandbox::detect))
         .route("/api/sandbox/backtest", post(routes::sandbox::backtest))
+        .route(
+            "/api/sandbox/backtest-historical",
+            post(routes::sandbox::backtest_historical),
+        )
+        .route("/api/sandbox/impact", post(routes::optimize::impact))
+        .route("/api/sandbox/optimize", post(routes::optimize::optimize))
+        .route("/api/verify-live", post(routes::verify::verify_live))
         .route("/api/stress-test", post(routes::stress::run_stress_test))
         .route(
             "/api/simulation/status",

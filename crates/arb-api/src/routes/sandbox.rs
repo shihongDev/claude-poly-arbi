@@ -1,12 +1,15 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
 use arb_core::config::ArbConfig;
-use arb_core::traits::{ArbDetector, SlippageEstimator};
+use arb_core::traits::{ArbDetector, SlippageEstimator, TradeExecutor};
 use arb_core::types::{Opportunity, SandboxConfigOverrides};
+use arb_core::{MarketState, OrderbookSnapshot};
 use arb_data::correlation::CorrelationGraph;
 use arb_data::orderbook::OrderbookProcessor;
 use arb_data::vwap_cache::CachedSlippageEstimator;
+use arb_execution::paper_trade::PaperTradeExecutor;
 use arb_simulation::estimator::EnsembleEstimator;
 use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
@@ -22,6 +25,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 
@@ -328,6 +332,235 @@ pub async fn backtest(
         "aggregate_pnl_original": aggregate_pnl_original.to_string(),
         "daily_breakdown": daily_breakdown,
         "trades": trades,
+    });
+
+    (StatusCode::OK, Json(result)).into_response()
+}
+
+// ── Historical backtest ──────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct HistoricalBacktestRequest {
+    pub since: DateTime<Utc>,
+    pub until: DateTime<Utc>,
+    #[serde(default)]
+    pub config_overrides: SandboxConfigOverrides,
+    pub resample_interval_secs: Option<u64>,
+}
+
+pub async fn backtest_historical(
+    State(state): State<AppState>,
+    Json(req): Json<HistoricalBacktestRequest>,
+) -> impl IntoResponse {
+    // Require the price history store
+    let price_store = match &state.price_store {
+        Some(store) => Arc::clone(store),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "Price history store not available"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let base_config = state.config.read().unwrap().clone();
+    let config = base_config.with_overrides(&req.config_overrides);
+    let resample_secs = req.resample_interval_secs.unwrap_or(300);
+
+    // Load all ticks in the time range
+    let all_ticks = match price_store.get_all_ticks_in_range(req.since, req.until) {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Failed to load price ticks: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    if all_ticks.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "buckets": [],
+                "total_opportunities": 0,
+                "total_trades": 0,
+                "final_pnl": "0",
+                "time_range": {
+                    "since": req.since.to_rfc3339(),
+                    "until": req.until.to_rfc3339(),
+                },
+                "resample_interval_secs": resample_secs,
+            })),
+        )
+            .into_response();
+    }
+
+    // Group ticks into time buckets
+    let bucket_duration_ms = (resample_secs as i64) * 1000;
+    let start_ms = req.since.timestamp_millis();
+
+    // Determine the bucket index for each tick
+    let mut bucket_map: std::collections::BTreeMap<i64, Vec<&arb_data::price_history::PriceTick>> =
+        std::collections::BTreeMap::new();
+    for tick in &all_ticks {
+        let tick_ms = tick.timestamp.timestamp_millis();
+        let bucket_idx = (tick_ms - start_ms) / bucket_duration_ms;
+        bucket_map.entry(bucket_idx).or_default().push(tick);
+    }
+
+    // Cap at 1000 buckets
+    let max_buckets = 1000usize;
+    let bucket_entries: Vec<_> = bucket_map.into_iter().take(max_buckets).collect();
+
+    // Set up detectors for scanning
+    let estimator = Arc::new(CachedSlippageEstimator::new(
+        OrderbookProcessor::new(config.slippage.clone()),
+    ));
+    let slippage: Arc<dyn SlippageEstimator> = estimator;
+
+    let mut detectors: Vec<Box<dyn ArbDetector>> = Vec::new();
+    if config.strategy.intra_market_enabled {
+        detectors.push(Box::new(IntraMarketDetector::new(
+            config.strategy.intra_market.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.multi_outcome_enabled {
+        detectors.push(Box::new(MultiOutcomeDetector::new(
+            config.strategy.multi_outcome.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+
+    let edge_calculator = EdgeCalculator::default_with_estimator(slippage);
+    let paper_executor = PaperTradeExecutor::default_pessimism();
+    let min_edge = Decimal::from(config.strategy.min_edge_bps);
+
+    let mut total_opportunities = 0usize;
+    let mut total_trades = 0usize;
+    let mut cumulative_pnl = Decimal::ZERO;
+    let mut buckets_result = Vec::new();
+
+    for (bucket_idx, ticks) in &bucket_entries {
+        let bucket_ts_ms = start_ms + bucket_idx * bucket_duration_ms;
+        let bucket_ts = chrono::TimeZone::timestamp_millis_opt(&Utc, bucket_ts_ms)
+            .single()
+            .unwrap_or_default();
+
+        // Reconstruct MarketState per condition_id from ticks in this bucket
+        let mut market_map: HashMap<String, MarketState> = HashMap::new();
+        for tick in ticks {
+            let ms = market_map
+                .entry(tick.condition_id.clone())
+                .or_insert_with(|| MarketState {
+                    condition_id: tick.condition_id.clone(),
+                    question: String::new(),
+                    outcomes: vec![],
+                    token_ids: vec![],
+                    outcome_prices: vec![],
+                    orderbooks: vec![],
+                    volume_24hr: tick.volume_24h,
+                    liquidity: None,
+                    active: true,
+                    neg_risk: false,
+                    best_bid: tick.best_bid,
+                    best_ask: tick.best_ask,
+                    spread: match (tick.best_ask, tick.best_bid) {
+                        (Some(a), Some(b)) => Some(a - b),
+                        _ => None,
+                    },
+                    last_trade_price: Some(tick.price),
+                    description: None,
+                    end_date_iso: None,
+                    slug: None,
+                    one_day_price_change: None,
+                    event_id: None,
+                    last_updated_gen: 0,
+                });
+
+            // Add this token's data
+            if !ms.token_ids.contains(&tick.token_id) {
+                ms.token_ids.push(tick.token_id.clone());
+                ms.outcome_prices.push(tick.price);
+                ms.outcomes.push(format!("outcome_{}", ms.outcomes.len()));
+                ms.orderbooks.push(OrderbookSnapshot {
+                    token_id: tick.token_id.clone(),
+                    bids: if let Some(bid) = tick.best_bid {
+                        vec![arb_core::OrderbookLevel {
+                            price: bid,
+                            size: Decimal::from(100),
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    asks: if let Some(ask) = tick.best_ask {
+                        vec![arb_core::OrderbookLevel {
+                            price: ask,
+                            size: Decimal::from(100),
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    timestamp: tick.timestamp,
+                });
+            }
+        }
+
+        let markets: Vec<Arc<MarketState>> =
+            market_map.into_values().map(Arc::new).collect();
+
+        // Run detectors
+        let mut bucket_opps: Vec<Opportunity> = Vec::new();
+        for detector in &detectors {
+            if let Ok(opps) = detector.scan(&markets).await {
+                bucket_opps.extend(opps);
+            }
+        }
+
+        for opp in &mut bucket_opps {
+            let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
+        }
+        bucket_opps.retain(|o| o.net_edge_bps() >= min_edge);
+
+        let detected = bucket_opps.len();
+        total_opportunities += detected;
+
+        // Execute through paper trader
+        let mut bucket_trades = 0usize;
+        for opp in &bucket_opps {
+            if let Ok(report) = paper_executor.execute_opportunity(opp).await {
+                let net_pnl = report.realized_edge - report.total_fees;
+                cumulative_pnl += net_pnl;
+                bucket_trades += 1;
+            }
+        }
+        total_trades += bucket_trades;
+
+        buckets_result.push(serde_json::json!({
+            "ts": bucket_ts.to_rfc3339(),
+            "opportunities_detected": detected,
+            "trades_executed": bucket_trades,
+            "cumulative_pnl": cumulative_pnl.to_string(),
+        }));
+    }
+
+    let result = serde_json::json!({
+        "buckets": buckets_result,
+        "total_opportunities": total_opportunities,
+        "total_trades": total_trades,
+        "final_pnl": cumulative_pnl.to_string(),
+        "time_range": {
+            "since": req.since.to_rfc3339(),
+            "until": req.until.to_rfc3339(),
+        },
+        "resample_interval_secs": resample_secs,
     });
 
     (StatusCode::OK, Json(result)).into_response()

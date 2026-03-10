@@ -318,6 +318,47 @@ impl PriceHistoryStore {
         Some(std_dev)
     }
 
+    /// Get all price ticks in a time range across all condition_ids.
+    ///
+    /// Unlike `get_history`, this does not filter by condition_id and returns
+    /// ticks for every market recorded in the store. Useful for historical
+    /// backtest endpoints that need to reconstruct market states across all markets.
+    pub fn get_all_ticks_in_range(
+        &self,
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    ) -> anyhow::Result<Vec<PriceTick>> {
+        let conn = self.conn.lock().unwrap();
+        let since_ms = since.timestamp_millis();
+        let until_ms = until.timestamp_millis();
+
+        let mut stmt = conn.prepare(
+            "SELECT condition_id, token_id, price, best_bid, best_ask, volume_24h, ts
+             FROM price_ticks
+             WHERE ts >= ?1 AND ts <= ?2
+             ORDER BY ts ASC",
+        )?;
+
+        let rows = stmt.query_map(params![since_ms, until_ms], |row| {
+            let ts_ms: i64 = row.get(6)?;
+            Ok(PriceTick {
+                condition_id: row.get(0)?,
+                token_id: row.get(1)?,
+                price: f64_to_decimal(row.get(2)?),
+                best_bid: opt_f64_to_decimal(row.get(3)?),
+                best_ask: opt_f64_to_decimal(row.get(4)?),
+                volume_24h: opt_f64_to_decimal(row.get(5)?),
+                timestamp: Utc.timestamp_millis_opt(ts_ms).single().unwrap_or_default(),
+            })
+        })?;
+
+        let mut ticks = Vec::new();
+        for row in rows {
+            ticks.push(row?);
+        }
+        Ok(ticks)
+    }
+
     /// Delete ticks older than `retention_days`.
     ///
     /// Returns the number of rows deleted.

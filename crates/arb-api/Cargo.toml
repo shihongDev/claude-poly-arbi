@@ -11,6 +11,7 @@ name = "arb-api"
 path = "src/main.rs"
 
 [dependencies]
+alloy = { workspace = true }
 arb-core = { workspace = true }
 arb-data = { workspace = true }
 arb-strategy = { workspace = true }
