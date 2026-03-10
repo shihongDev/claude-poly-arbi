@@ -5,6 +5,7 @@ use arb_core::{
     error::Result,
     traits::SlippageEstimator,
 };
+use arb_data::impact::MarketImpactEstimator;
 use arb_data::market_cache::MarketCache;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -17,6 +18,10 @@ use rust_decimal_macros::dec;
 pub struct EdgeCalculator {
     fee_rate: Decimal,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    /// Optional market impact estimator (Kyle's lambda + depth walk).
+    /// When present, estimated impact cost is subtracted from net_edge
+    /// during VWAP refinement for a more conservative edge estimate.
+    impact_estimator: Option<Arc<MarketImpactEstimator>>,
 }
 
 impl EdgeCalculator {
@@ -24,6 +29,20 @@ impl EdgeCalculator {
         Self {
             fee_rate,
             slippage_estimator,
+            impact_estimator: None,
+        }
+    }
+
+    /// Constructor with market impact estimator included.
+    pub fn with_impact(
+        fee_rate: Decimal,
+        slippage_estimator: Arc<dyn SlippageEstimator>,
+        impact_estimator: Arc<MarketImpactEstimator>,
+    ) -> Self {
+        Self {
+            fee_rate,
+            slippage_estimator,
+            impact_estimator: Some(impact_estimator),
         }
     }
 
@@ -76,6 +95,35 @@ impl EdgeCalculator {
         opp.estimated_vwap = estimated_vwaps;
         let fees = self.calculate_fees(&opp.legs);
         opp.net_edge = opp.gross_edge - fees;
+
+        // Subtract estimated market impact if the estimator is present.
+        // Walks each leg's orderbook and sums impact cost across all legs.
+        if let Some(ref impact_est) = self.impact_estimator {
+            let mut total_impact_cost = Decimal::ZERO;
+
+            for leg in &opp.legs {
+                // Find the market state for this leg's token
+                let market_state = cached_markets
+                    .iter()
+                    .find(|m| m.orderbooks.iter().any(|ob| ob.token_id == leg.token_id));
+
+                if let Some(ms) = market_state
+                    && let Some(book) = ms.orderbooks.iter().find(|ob| ob.token_id == leg.token_id)
+                {
+                    let estimate = impact_est.estimate(
+                        book,
+                        leg.side,
+                        leg.target_size,
+                        ms.volume_24hr,
+                    );
+                    // Convert impact_bps to a dollar cost on this leg's notional
+                    let leg_notional = leg.vwap_estimate * leg.target_size;
+                    total_impact_cost += leg_notional * estimate.impact_bps / Decimal::from(10_000);
+                }
+            }
+
+            opp.net_edge -= total_impact_cost;
+        }
 
         Ok(())
     }

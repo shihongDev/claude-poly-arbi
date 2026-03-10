@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use arb_core::{
     ExecutionReport, FillStatus, LegReport, OpenOrder, Opportunity, Position, Side, TradingMode,
     error::Result,
     traits::TradeExecutor,
 };
+use arb_data::impact::MarketImpactEstimator;
 use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
@@ -24,6 +25,11 @@ pub struct PaperTradeExecutor {
     placed_orders: Mutex<HashMap<String, OpenOrder>>,
     /// Multiply VWAP slippage by this factor (e.g., 1.2 = assume 20% worse fills than estimated).
     pessimism_factor: Decimal,
+    /// Optional market impact estimator for more realistic fill simulation.
+    /// When orderbook context is available, this replaces the static pessimism factor
+    /// with a model-based impact estimate.
+    #[allow(dead_code)]
+    impact_estimator: Option<Arc<MarketImpactEstimator>>,
 }
 
 impl PaperTradeExecutor {
@@ -33,12 +39,23 @@ impl PaperTradeExecutor {
             trade_log: Mutex::new(Vec::new()),
             placed_orders: Mutex::new(HashMap::new()),
             pessimism_factor,
+            impact_estimator: None,
         }
     }
 
     /// Default with 10% pessimism (fills are 10% worse than VWAP estimate).
     pub fn default_pessimism() -> Self {
         Self::new(dec!(1.10))
+    }
+
+    /// Attach a market impact estimator (builder pattern).
+    ///
+    /// When orderbook context becomes available in the execution path, the
+    /// estimator will replace the static pessimism factor with model-based
+    /// impact estimates for more realistic fill simulation.
+    pub fn with_impact_estimator(mut self, estimator: Arc<MarketImpactEstimator>) -> Self {
+        self.impact_estimator = Some(estimator);
+        self
     }
 
     /// Get all current virtual positions.
