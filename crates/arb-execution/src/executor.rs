@@ -156,20 +156,20 @@ impl LiveTradeExecutor {
                     FillStatus::Rejected
                 };
 
-                // The taking_amount represents what we received (the fill price * size).
-                // For a successful fill, approximate fill price from taking/making amounts.
-                let actual_fill_price =
-                    if response.success && response.taking_amount > Decimal::ZERO {
-                        // taking_amount / making_amount gives effective price for buys;
-                        // for sells it's making_amount / taking_amount.
-                        // Fall back to our VWAP estimate if amounts are zero.
-                        match leg.side {
-                            Side::Buy => response.taking_amount / response.making_amount,
-                            Side::Sell => response.making_amount / response.taking_amount,
-                        }
-                    } else {
-                        leg.vwap_estimate
-                    };
+                // Approximate fill price from taking/making amounts.
+                // Guard against division by zero — SDK may return zero amounts
+                // on rejected or edge-case fills.
+                let actual_fill_price = if response.success
+                    && response.taking_amount > Decimal::ZERO
+                    && response.making_amount > Decimal::ZERO
+                {
+                    match leg.side {
+                        Side::Buy => response.taking_amount / response.making_amount,
+                        Side::Sell => response.making_amount / response.taking_amount,
+                    }
+                } else {
+                    leg.vwap_estimate
+                };
 
                 let filled_size = if response.success {
                     leg.target_size

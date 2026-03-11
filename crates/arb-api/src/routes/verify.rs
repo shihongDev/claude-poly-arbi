@@ -69,11 +69,9 @@ pub async fn verify_live(State(state): State<AppState>) -> impl IntoResponse {
 
     // Step 2: Find the most liquid market
     let markets = state.market_cache.active_markets();
-    let best_market = markets.iter().max_by_key(|m| {
-        m.volume_24hr
-            .unwrap_or(rust_decimal::Decimal::ZERO)
-            .to_string()
-    });
+    let best_market = markets
+        .iter()
+        .max_by_key(|m| m.volume_24hr.unwrap_or(rust_decimal::Decimal::ZERO));
 
     let best_market = match best_market {
         Some(m) => m,

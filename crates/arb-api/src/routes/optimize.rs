@@ -117,7 +117,16 @@ pub async fn optimize(
     let kelly_mult = req.kelly_multiplier.unwrap_or(0.25);
 
     // Read current bankroll from risk limits (equity = starting_equity for now)
-    let bankroll = state.config.read().unwrap().general.starting_equity;
+    let bankroll = match state.config.read() {
+        Ok(c) => c.general.starting_equity,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Config lock poisoned" })),
+            )
+                .into_response();
+        }
+    };
 
     let max_pos = req
         .risk_preferences

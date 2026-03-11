@@ -154,7 +154,7 @@ impl TradeExecutor for PaperTradeExecutor {
             let order_id = Uuid::new_v4().to_string();
 
             leg_reports.push(LegReport {
-                order_id: order_id.clone(),
+                order_id,
                 token_id: leg.token_id.clone(),
                 condition_id: condition_id.clone(),
                 side: leg.side,
@@ -164,20 +164,9 @@ impl TradeExecutor for PaperTradeExecutor {
                 status: FillStatus::FullyFilled,
             });
 
-            // Track the order for cancel/open_orders support
-            self.placed_orders.lock().unwrap().insert(
-                order_id.clone(),
-                OpenOrder {
-                    order_id,
-                    token_id: leg.token_id.clone(),
-                    condition_id: condition_id.clone(),
-                    side: leg.side,
-                    price: fill_price,
-                    original_size: leg.target_size,
-                    remaining_size: leg.target_size,
-                    created_at: Utc::now(),
-                },
-            );
+            // Note: paper trades fill immediately (FullyFilled), so they are
+            // NOT tracked as open orders. Only unfilled/partial orders would be
+            // tracked here in a more sophisticated simulation.
 
             total_slippage += slippage * leg.target_size;
             total_fees += fee;

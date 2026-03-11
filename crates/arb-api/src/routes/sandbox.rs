@@ -262,13 +262,20 @@ pub async fn backtest(
         let net_pnl = report.realized_edge - report.total_fees;
         aggregate_pnl_original += net_pnl;
 
-        let edge_bps = if report.realized_edge != Decimal::ZERO {
-            report.realized_edge * Decimal::from(10_000)
+        let trade_size: Decimal = report.legs.iter().map(|l| l.filled_size).sum();
+
+        // edge_bps = (realized_edge / notional) * 10000
+        // realized_edge is a dollar amount, so normalize by trade notional first
+        let notional: Decimal = report
+            .legs
+            .iter()
+            .map(|l| l.filled_size * l.actual_fill_price)
+            .sum();
+        let edge_bps = if notional > Decimal::ZERO {
+            (report.realized_edge / notional) * Decimal::from(10_000)
         } else {
             Decimal::ZERO
         };
-
-        let trade_size: Decimal = report.legs.iter().map(|l| l.filled_size).sum();
 
         let would_exceed_exposure =
             cumulative_exposure + trade_size > config.risk.max_total_exposure;
@@ -529,8 +536,14 @@ pub async fn backtest_historical(
             }
         }
 
+        // Build a temporary cache from reconstructed historical data
+        // instead of using the live market cache for VWAP refinement.
+        let temp_cache = arb_data::market_cache::MarketCache::new();
+        for m in &markets {
+            temp_cache.update_one((**m).clone());
+        }
         for opp in &mut bucket_opps {
-            let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
+            let _ = edge_calculator.refine_with_vwap(opp, &temp_cache);
         }
         bucket_opps.retain(|o| o.net_edge_bps() >= min_edge);
 
