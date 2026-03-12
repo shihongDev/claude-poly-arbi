@@ -7,11 +7,15 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatDecimal(value: string | null, decimals = 2): string {
   if (!value) return "\u2014";
-  return parseFloat(value).toFixed(decimals);
+  const num = parseFloat(value);
+  if (isNaN(num)) return "\u2014";
+  return num.toFixed(decimals);
 }
 
 export function formatBps(value: string): string {
-  return `${(parseFloat(value) * 10000).toFixed(0)} bps`;
+  const num = parseFloat(value);
+  if (isNaN(num)) return "\u2014";
+  return `${(num * 10000).toFixed(0)} bps`;
 }
 
 export function formatUsd(value: string | null): string {
@@ -25,6 +29,7 @@ export function formatUsd(value: string | null): string {
 
 export function formatPnl(value: string): string {
   const num = parseFloat(value);
+  if (isNaN(num)) return "\u2014";
   const prefix = num >= 0 ? "+" : "";
   return `${prefix}${formatUsd(value)}`;
 }
@@ -97,6 +102,12 @@ export const OUTCOME_COLORS = [
   "#0EA5E9", // sky
   "#8B5CF6", // violet
 ];
+
+/** Middle-truncate a hex ID or UUID: `0x1a2b...9c0d`. */
+export function truncateId(id: string, chars = 8): string {
+  if (id.length <= chars * 2 + 3) return id;
+  return `${id.slice(0, chars)}...${id.slice(-chars)}`;
+}
 
 // ── Shared formatting helpers ─────────────────────────────────
 

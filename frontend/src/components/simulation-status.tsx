@@ -5,7 +5,6 @@ import {
   Activity,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   RefreshCw,
   Loader2,
 } from "lucide-react";
@@ -19,19 +18,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
+import { cn, truncateId } from "@/lib/utils";
 import { fetchSimulationStatus } from "@/lib/api";
 import type { SimulationStatus } from "@/lib/types";
+import { ConvergenceDiagnosticsChart } from "@/components/convergence-diagnostics-chart";
+import { BrierScoreTrend } from "@/components/brier-score-trend";
 
 const MONO = { fontFamily: "var(--font-jetbrains-mono)" };
 
 function pct(v: number): string {
   return `${(v * 100).toFixed(2)}%`;
-}
-
-function truncateId(id: string, chars = 8): string {
-  if (id.length <= chars * 2 + 3) return id;
-  return `${id.slice(0, chars)}...${id.slice(-chars)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,99 +218,14 @@ function ConvergenceDiagnosticsCard({
           </p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ModelHealthCard({
-  health,
-}: {
-  health: SimulationStatus["model_health"];
-}) {
-  const confidenceColor =
-    health.confidence_level >= 0.7
-      ? "#2D6A4F"
-      : health.confidence_level >= 0.4
-        ? "#D97706"
-        : "#B44C3F";
-
-  return (
-    <div className="rounded-2xl bg-white p-5">
-      <SectionHeader title="Model Health" />
-      <div className="mt-4 space-y-4">
-        {/* Brier scores */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs text-[#9B9B9B]">Brier Score (30m)</p>
-            <p
-              className={cn(
-                "mt-1 text-lg font-semibold",
-                health.brier_score_30m < 0.15
-                  ? "text-[#2D6A4F]"
-                  : health.brier_score_30m < 0.25
-                    ? "text-[#D97706]"
-                    : "text-[#B44C3F]"
-              )}
-              style={MONO}
-            >
-              {health.brier_score_30m.toFixed(4)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-[#9B9B9B]">Brier Score (24h)</p>
-            <p
-              className={cn(
-                "mt-1 text-lg font-semibold",
-                health.brier_score_24h < 0.15
-                  ? "text-[#2D6A4F]"
-                  : health.brier_score_24h < 0.25
-                    ? "text-[#D97706]"
-                    : "text-[#B44C3F]"
-              )}
-              style={MONO}
-            >
-              {health.brier_score_24h.toFixed(4)}
-            </p>
-          </div>
-        </div>
-
-        {/* Confidence bar */}
-        <div>
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-[#9B9B9B]">Confidence Level</p>
-            <p className="text-xs text-[#6B6B6B]" style={MONO}>
-              {(health.confidence_level * 100).toFixed(0)}%
-            </p>
-          </div>
-          <div className="mt-1.5 h-2 w-full rounded-full bg-[#F0EEEA]">
-            <div
-              className="h-2 rounded-full transition-all duration-500"
-              style={{
-                width: `${health.confidence_level * 100}%`,
-                backgroundColor: confidenceColor,
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Drift badge */}
-        <div className="flex items-center gap-2">
-          <p className="text-xs text-[#9B9B9B]">Drift Detected</p>
-          {health.drift_detected ? (
-            <Badge className="bg-[#F5E0DD] text-[#B44C3F] text-[10px]">
-              <AlertTriangle className="mr-1 h-3 w-3" />
-              Drift
-            </Badge>
-          ) : (
-            <Badge className="bg-[#DAE9E0] text-[#2D6A4F] text-[10px]">
-              Stable
-            </Badge>
-          )}
-        </div>
+      {/* Convergence curve chart */}
+      <div className="mt-4">
+        <ConvergenceDiagnosticsChart convergence={convergence} />
       </div>
     </div>
   );
 }
+
 
 function VarSummaryCard({
   varSummary,
@@ -461,7 +372,7 @@ export function SimulationStatusPanel() {
       {/* Convergence + Model Health + VaR cards */}
       <div className="grid gap-4 lg:grid-cols-3">
         <ConvergenceDiagnosticsCard convergence={status.convergence} />
-        <ModelHealthCard health={status.model_health} />
+        <BrierScoreTrend health={status.model_health} />
         <VarSummaryCard varSummary={status.var_summary} />
       </div>
     </div>

@@ -13,6 +13,7 @@ import {
   FlaskConical,
 } from "lucide-react";
 import { useDashboardStore } from "@/store";
+import { EdgeDistributionHistogram } from "@/components/edge-distribution-histogram";
 import { fetchApi, sandboxDetect, sandboxBacktest, runSimulation } from "@/lib/api";
 import { cn, formatBps, formatUsd, formatDecimal, timeAgo } from "@/lib/utils";
 import { DataTable, type Column } from "@/components/data-table";
@@ -154,6 +155,7 @@ const DEFAULT_CONFIG: SandboxConfigOverrides = {
 
 export default function PlaygroundPage() {
   const markets = useDashboardStore((s) => s.markets);
+  const storeOpportunities = useDashboardStore((s) => s.opportunities);
 
   // ── Sandbox config (local state, isolated from live engine) ──
   const [config, setConfig] = useState<SandboxConfigOverrides>({ ...DEFAULT_CONFIG });
@@ -1188,6 +1190,11 @@ export default function PlaygroundPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* ── Edge Distribution Histogram ── */}
+      <div className="mt-4">
+        <EdgeDistributionHistogram opportunities={storeOpportunities} />
+      </div>
 
       {/* ── Apply to Live Confirmation Dialog ── */}
       <Dialog open={applyDialogOpen} onOpenChange={setApplyDialogOpen}>

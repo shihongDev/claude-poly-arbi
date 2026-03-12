@@ -138,6 +138,8 @@ async fn main() -> anyhow::Result<()> {
             post(routes::simulate::run_simulation),
         )
         .route("/api/sandbox/detect", post(routes::sandbox::detect))
+        .route("/api/sandbox/sweep", post(routes::sandbox::sweep))
+        .route("/api/sandbox/explain", post(routes::sandbox::explain))
         .route("/api/sandbox/backtest", post(routes::sandbox::backtest))
         .route("/api/stress-test", post(routes::stress::run_stress_test))
         .route(

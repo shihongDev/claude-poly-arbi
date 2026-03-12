@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arb_core::{
     Opportunity, TradeLeg, Side,
+    config::FeeConfig,
     error::Result,
     traits::SlippageEstimator,
 };
@@ -12,8 +13,8 @@ use rust_decimal_macros::dec;
 /// Central EV computation engine.
 ///
 /// Handles fee calculation and VWAP refinement for all arb types.
-/// Polymarket charges ~2% on net winnings, but for arb we model fees
-/// as a percentage of notional traded.
+/// Supports Polymarket's maker/taker fee model: makers (GTC/post-only)
+/// pay 0%, takers (FOK/market orders) pay ~2%.
 pub struct EdgeCalculator {
     fee_rate: Decimal,
     slippage_estimator: Arc<dyn SlippageEstimator>,
@@ -27,7 +28,22 @@ impl EdgeCalculator {
         }
     }
 
-    /// Default with Polymarket's 2% fee rate.
+    /// Construct from `FeeConfig` and `prefer_post_only` flag.
+    ///
+    /// When `prefer_post_only` is true, uses the maker fee rate (typically 0%).
+    /// When false, uses the taker fee rate (typically 2%).
+    pub fn from_config(
+        fee_config: &FeeConfig,
+        prefer_post_only: bool,
+        slippage_estimator: Arc<dyn SlippageEstimator>,
+    ) -> Self {
+        Self::new(
+            fee_config.effective_rate(prefer_post_only),
+            slippage_estimator,
+        )
+    }
+
+    /// Default with Polymarket's 2% taker fee rate (backward-compatible).
     pub fn default_with_estimator(slippage_estimator: Arc<dyn SlippageEstimator>) -> Self {
         Self::new(dec!(0.02), slippage_estimator)
     }

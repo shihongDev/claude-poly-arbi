@@ -23,7 +23,12 @@ pub struct PaperTradeExecutor {
     trade_log: Mutex<Vec<ExecutionReport>>,
     /// Multiply VWAP slippage by this factor (e.g., 1.2 = assume 20% worse fills than estimated).
     pessimism_factor: Decimal,
+    /// Fee rate applied to each leg's notional (maker=0%, taker=2%).
+    fee_rate: Decimal,
 }
+
+/// Default pessimism factor: fills are assumed 10% worse than VWAP estimate.
+pub const DEFAULT_PESSIMISM: Decimal = dec!(1.10);
 
 impl PaperTradeExecutor {
     pub fn new(pessimism_factor: Decimal) -> Self {
@@ -31,12 +36,23 @@ impl PaperTradeExecutor {
             positions: Mutex::new(HashMap::new()),
             trade_log: Mutex::new(Vec::new()),
             pessimism_factor,
+            fee_rate: dec!(0.02),
         }
     }
 
-    /// Default with 10% pessimism (fills are 10% worse than VWAP estimate).
+    /// Construct with explicit fee rate and default pessimism.
+    pub fn with_fee_rate(fee_rate: Decimal) -> Self {
+        Self {
+            positions: Mutex::new(HashMap::new()),
+            trade_log: Mutex::new(Vec::new()),
+            pessimism_factor: DEFAULT_PESSIMISM,
+            fee_rate,
+        }
+    }
+
+    /// Default with 10% pessimism and 2% taker fee (backward-compatible).
     pub fn default_pessimism() -> Self {
-        Self::new(dec!(1.10))
+        Self::new(DEFAULT_PESSIMISM)
     }
 
     /// Get all current virtual positions.
@@ -123,8 +139,7 @@ impl TradeExecutor for PaperTradeExecutor {
             let fill_price = self.pessimistic_price(leg.vwap_estimate, leg.side);
             let slippage = (fill_price - leg.vwap_estimate).abs();
 
-            // Fee: 2% on notional
-            let fee = leg.target_size * fill_price * dec!(0.02);
+            let fee = leg.target_size * fill_price * self.fee_rate;
 
             leg_reports.push(LegReport {
                 order_id: Uuid::new_v4().to_string(),

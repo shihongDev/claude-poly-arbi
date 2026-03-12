@@ -14,7 +14,6 @@ use polymarket_client_sdk::auth::Normal;
 use polymarket_client_sdk::auth::state::Authenticated;
 use polymarket_client_sdk::clob;
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use tracing::{info, warn};
 
 use crate::auth;
@@ -35,6 +34,8 @@ pub struct LiveTradeExecutor {
     signer: PrivateKeySigner,
     prefer_post_only: bool,
     order_timeout_secs: u64,
+    /// Fee rate applied to each leg's notional (maker=0%, taker=2%).
+    fee_rate: Decimal,
 }
 
 impl LiveTradeExecutor {
@@ -44,12 +45,14 @@ impl LiveTradeExecutor {
         signer: PrivateKeySigner,
         prefer_post_only: bool,
         order_timeout_secs: u64,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             clob_client,
             signer,
             prefer_post_only,
             order_timeout_secs,
+            fee_rate,
         }
     }
 
@@ -58,9 +61,10 @@ impl LiveTradeExecutor {
         key_path: Option<&std::path::Path>,
         prefer_post_only: bool,
         order_timeout_secs: u64,
+        fee_rate: Decimal,
     ) -> Result<Self> {
         let (client, signer) = auth::authenticate_from_key_file(key_path).await?;
-        Ok(Self::new(client, signer, prefer_post_only, order_timeout_secs))
+        Ok(Self::new(client, signer, prefer_post_only, order_timeout_secs, fee_rate))
     }
 
     /// Returns a reference to the signer for order signing.
@@ -236,7 +240,7 @@ impl TradeExecutor for LiveTradeExecutor {
 
             let slippage = (report.actual_fill_price - report.expected_vwap).abs()
                 * report.filled_size;
-            let fee = report.filled_size * report.actual_fill_price * dec!(0.02);
+            let fee = report.filled_size * report.actual_fill_price * self.fee_rate;
 
             total_slippage += slippage;
             total_fees += fee;

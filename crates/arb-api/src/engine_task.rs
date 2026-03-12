@@ -129,7 +129,12 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         )));
     }
 
-    let edge_calculator = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
+    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
+    let edge_calculator = EdgeCalculator::from_config(
+        &config.fees,
+        config.slippage.prefer_post_only,
+        slippage_estimator.clone(),
+    );
 
     // Probability estimator (ensemble of MC + particle filter)
     let prob_estimator = EnsembleEstimator::from_config(
@@ -190,18 +195,19 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             key_path,
             config.slippage.prefer_post_only,
             config.risk.order_timeout_secs,
+            fee_rate,
         )
         .await
         {
             Ok(live) => Box::new(live),
             Err(e) => {
                 error!("Failed to initialize live executor: {e}. Falling back to paper.");
-                Box::new(PaperTradeExecutor::default_pessimism())
+                Box::new(PaperTradeExecutor::with_fee_rate(fee_rate))
             }
         }
     } else {
         info!("Starting engine in PAPER trading mode");
-        Box::new(PaperTradeExecutor::default_pessimism())
+        Box::new(PaperTradeExecutor::with_fee_rate(fee_rate))
     };
 
     // ── Phase 1: Fetch all active markets (metadata only, no orderbooks) ──

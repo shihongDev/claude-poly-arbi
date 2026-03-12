@@ -9,6 +9,8 @@ pub struct ArbConfig {
     pub general: GeneralConfig,
     pub polling: PollingConfig,
     pub strategy: StrategyConfig,
+    #[serde(default)]
+    pub fees: FeeConfig,
     pub slippage: SlippageConfig,
     pub risk: RiskConfig,
     pub simulation: SimulationConfig,
@@ -304,6 +306,36 @@ impl Default for MarketMakingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeConfig {
+    /// Fee rate for taker orders (market orders, FOK, IOC). Polymarket default: 2%
+    #[serde(default = "default_taker_fee")]
+    pub taker_fee_rate: Decimal,
+    /// Fee rate for maker orders (limit orders that rest on book, GTC post-only). Polymarket default: 0%
+    #[serde(default = "default_maker_fee")]
+    pub maker_fee_rate: Decimal,
+}
+
+impl Default for FeeConfig {
+    fn default() -> Self {
+        Self {
+            taker_fee_rate: default_taker_fee(),
+            maker_fee_rate: default_maker_fee(),
+        }
+    }
+}
+
+impl FeeConfig {
+    /// Return the effective fee rate based on whether we prefer post-only (maker) orders.
+    pub fn effective_rate(&self, prefer_post_only: bool) -> Decimal {
+        if prefer_post_only {
+            self.maker_fee_rate
+        } else {
+            self.taker_fee_rate
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlippageConfig {
     #[serde(default = "default_max_slippage_bps")]
     pub max_slippage_bps: u64,
@@ -373,13 +405,13 @@ fn default_log_format() -> String {
     "json".into()
 }
 fn default_hot_interval() -> u64 {
-    5
+    1 // Aggressive for competitive arb — sub-second data via WS, 1s REST fallback
 }
 fn default_warm_interval() -> u64 {
-    15
+    5
 }
 fn default_cold_interval() -> u64 {
-    60
+    30
 }
 fn default_hot_volume_threshold() -> u64 {
     100_000
@@ -392,6 +424,12 @@ fn default_min_edge_bps() -> u64 {
 }
 fn default_true() -> bool {
     true
+}
+fn default_taker_fee() -> Decimal {
+    Decimal::new(2, 2) // 0.02 = 2%
+}
+fn default_maker_fee() -> Decimal {
+    Decimal::ZERO // 0% for makers
 }
 fn default_intra_min_deviation() -> Decimal {
     Decimal::new(1, 3) // 0.001
@@ -590,18 +628,47 @@ impl ArbConfig {
     /// Clone this config and apply sandbox overrides on top.
     pub fn with_overrides(&self, ov: &crate::types::SandboxConfigOverrides) -> Self {
         let mut c = self.clone();
+        // Strategy toggles
         if let Some(v) = ov.min_edge_bps { c.strategy.min_edge_bps = v; }
         if let Some(v) = ov.intra_market_enabled { c.strategy.intra_market_enabled = v; }
         if let Some(v) = ov.cross_market_enabled { c.strategy.cross_market_enabled = v; }
         if let Some(v) = ov.multi_outcome_enabled { c.strategy.multi_outcome_enabled = v; }
+        if let Some(v) = ov.resolution_sniping_enabled { c.strategy.resolution_sniping_enabled = v; }
+        if let Some(v) = ov.stale_market_enabled { c.strategy.stale_market_enabled = v; }
+        if let Some(v) = ov.volume_spike_enabled { c.strategy.volume_spike_enabled = v; }
+        if let Some(v) = ov.prob_model_enabled { c.strategy.prob_model_enabled = v; }
+        if let Some(v) = ov.liquidity_sniping_enabled { c.strategy.liquidity_sniping_enabled = v; }
+        if let Some(v) = ov.market_making_enabled { c.strategy.market_making_enabled = v; }
+        // Per-strategy config
         if let Some(v) = ov.intra_min_deviation { c.strategy.intra_market.min_deviation = v; }
         if let Some(v) = ov.cross_min_implied_edge { c.strategy.cross_market.min_implied_edge = v; }
         if let Some(v) = ov.multi_min_deviation { c.strategy.multi_outcome.min_deviation = v; }
+        if let Some(v) = ov.res_min_price { c.strategy.resolution_sniping.min_price = v; }
+        if let Some(v) = ov.res_max_price { c.strategy.resolution_sniping.max_price = v; }
+        if let Some(v) = ov.res_max_hours { c.strategy.resolution_sniping.max_hours_to_resolution = v; }
+        if let Some(v) = ov.res_min_volume { c.strategy.resolution_sniping.min_volume_24h = v; }
+        if let Some(v) = ov.stale_max_hours { c.strategy.stale_market.max_stale_hours = v; }
+        if let Some(v) = ov.stale_min_divergence_bps { c.strategy.stale_market.min_divergence_bps = v; }
+        if let Some(v) = ov.vol_spike_multiplier { c.strategy.volume_spike.spike_multiplier = v; }
+        if let Some(v) = ov.vol_min_absolute_volume { c.strategy.volume_spike.min_absolute_volume = v; }
+        if let Some(v) = ov.prob_min_deviation_bps { c.strategy.prob_model.min_deviation_bps = v; }
+        if let Some(v) = ov.prob_min_confidence { c.strategy.prob_model.min_confidence = v; }
+        if let Some(v) = ov.liq_min_depth_change_pct { c.strategy.liquidity_sniping.min_depth_change_pct = v; }
+        if let Some(v) = ov.mm_target_spread_bps { c.strategy.market_making.target_spread_bps = v; }
+        if let Some(v) = ov.mm_max_inventory { c.strategy.market_making.max_inventory = v; }
+        if let Some(v) = ov.mm_min_volume { c.strategy.market_making.min_volume_24h = v; }
+        // Slippage
         if let Some(v) = ov.max_slippage_bps { c.slippage.max_slippage_bps = v; }
         if let Some(v) = ov.vwap_depth_levels { c.slippage.vwap_depth_levels = v; }
+        // Risk
         if let Some(v) = ov.max_position_per_market { c.risk.max_position_per_market = v; }
         if let Some(v) = ov.max_total_exposure { c.risk.max_total_exposure = v; }
         if let Some(v) = ov.daily_loss_limit { c.risk.daily_loss_limit = v; }
+        // Fee override
+        if let Some(v) = ov.fee_rate_override {
+            c.fees.taker_fee_rate = v;
+            c.fees.maker_fee_rate = v;
+        }
         c
     }
 
@@ -666,6 +733,7 @@ impl Default for ArbConfig {
                 multi_outcome_enabled: true,
                 ..StrategyConfig::default()
             },
+            fees: FeeConfig::default(),
             slippage: SlippageConfig {
                 max_slippage_bps: default_max_slippage_bps(),
                 order_split_threshold: default_order_split_threshold(),
