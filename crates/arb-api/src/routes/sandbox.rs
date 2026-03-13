@@ -71,7 +71,10 @@ pub async fn detect(
         let graph = if let Some(ref file) = config.strategy.cross_market.correlation_file {
             let path = ArbConfig::config_dir().join(file);
             if path.exists() {
-                CorrelationGraph::load(&path).unwrap_or_else(|_| CorrelationGraph::empty())
+                CorrelationGraph::load(&path).unwrap_or_else(|e| {
+                    tracing::warn!("Failed to load correlation file: {e}");
+                    CorrelationGraph::empty()
+                })
             } else {
                 CorrelationGraph::empty()
             }
@@ -183,17 +186,26 @@ pub async fn detect(
     }
 
     let mut opportunities: Vec<Opportunity> = Vec::new();
+    let mut detector_errors: Vec<serde_json::Value> = Vec::new();
 
     for detector in &detectors {
-        if let Ok(opps) = detector.scan(&markets).await {
-            opportunities.extend(opps);
+        match detector.scan(&markets).await {
+            Ok(opps) => opportunities.extend(opps),
+            Err(e) => {
+                detector_errors.push(serde_json::json!({
+                    "detector": detector.arb_type().to_string(),
+                    "error": e.to_string(),
+                }));
+            }
         }
     }
 
     let pre_filter_count = opportunities.len();
 
     for opp in &mut opportunities {
-        let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
+        if edge_calculator.refine_with_vwap(opp, &state.market_cache).is_err() {
+            opp.net_edge = Decimal::ZERO;
+        }
     }
 
     let min_edge = Decimal::from(config.strategy.min_edge_bps);
@@ -228,6 +240,7 @@ pub async fn detect(
             "closest_binary_bid_sum": closest_bid_sum.to_string(),
             "pre_filter_count": pre_filter_count,
             "post_filter_count": opportunities.len(),
+            "detector_errors": detector_errors,
         },
     });
 
@@ -436,6 +449,7 @@ pub async fn backtest_historical(
     )));
     let slippage: Arc<dyn SlippageEstimator> = estimator;
 
+    // Mirror the full detector set from the detect handler (H8 fix).
     let mut detectors: Vec<Box<dyn ArbDetector>> = Vec::new();
     if config.strategy.intra_market_enabled {
         detectors.push(Box::new(IntraMarketDetector::new(
@@ -447,6 +461,63 @@ pub async fn backtest_historical(
     if config.strategy.multi_outcome_enabled {
         detectors.push(Box::new(MultiOutcomeDetector::new(
             config.strategy.multi_outcome.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.cross_market_enabled {
+        let graph = if let Some(ref file) = config.strategy.cross_market.correlation_file {
+            let path = ArbConfig::config_dir().join(file);
+            if path.exists() {
+                CorrelationGraph::load(&path).unwrap_or_else(|e| {
+                    tracing::warn!("Failed to load correlation file: {e}");
+                    CorrelationGraph::empty()
+                })
+            } else {
+                CorrelationGraph::empty()
+            }
+        } else {
+            CorrelationGraph::empty()
+        };
+        detectors.push(Box::new(CrossMarketDetector::new(
+            config.strategy.cross_market.clone(),
+            config.strategy.clone(),
+            Arc::new(graph),
+            state.market_cache.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.resolution_sniping_enabled {
+        detectors.push(Box::new(ResolutionSnipingDetector::new(
+            config.strategy.resolution_sniping.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.stale_market_enabled {
+        detectors.push(Box::new(StaleMarketDetector::new(
+            config.strategy.stale_market.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.volume_spike_enabled {
+        detectors.push(Box::new(VolumeSpikeDetector::new(
+            config.strategy.volume_spike.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.liquidity_sniping_enabled {
+        detectors.push(Box::new(LiquiditySnipingDetector::new(
+            config.strategy.liquidity_sniping.clone(),
+            config.strategy.clone(),
+            slippage.clone(),
+        )));
+    }
+    if config.strategy.market_making_enabled {
+        detectors.push(Box::new(MarketMakingDetector::new(
+            config.strategy.market_making.clone(),
             config.strategy.clone(),
             slippage.clone(),
         )));
@@ -530,9 +601,18 @@ pub async fn backtest_historical(
 
         // Run detectors
         let mut bucket_opps: Vec<Opportunity> = Vec::new();
+        let mut detector_errors = 0usize;
         for detector in &detectors {
-            if let Ok(opps) = detector.scan(&markets).await {
-                bucket_opps.extend(opps);
+            match detector.scan(&markets).await {
+                Ok(opps) => bucket_opps.extend(opps),
+                Err(e) => {
+                    tracing::debug!(
+                        detector = %detector.arb_type(),
+                        error = %e,
+                        "Historical backtest detector error"
+                    );
+                    detector_errors += 1;
+                }
             }
         }
 
@@ -543,7 +623,9 @@ pub async fn backtest_historical(
             temp_cache.update_one((**m).clone());
         }
         for opp in &mut bucket_opps {
-            let _ = edge_calculator.refine_with_vwap(opp, &temp_cache);
+            if edge_calculator.refine_with_vwap(opp, &temp_cache).is_err() {
+                opp.net_edge = Decimal::ZERO;
+            }
         }
         bucket_opps.retain(|o| o.net_edge_bps() >= min_edge);
 
@@ -552,11 +634,18 @@ pub async fn backtest_historical(
 
         // Execute through paper trader
         let mut bucket_trades = 0usize;
+        let mut bucket_exec_errors = 0usize;
         for opp in &bucket_opps {
-            if let Ok(report) = paper_executor.execute_opportunity(opp).await {
-                let net_pnl = report.realized_edge - report.total_fees;
-                cumulative_pnl += net_pnl;
-                bucket_trades += 1;
+            match paper_executor.execute_opportunity(opp).await {
+                Ok(report) => {
+                    let net_pnl = report.realized_edge - report.total_fees;
+                    cumulative_pnl += net_pnl;
+                    bucket_trades += 1;
+                }
+                Err(e) => {
+                    tracing::debug!(opp_id = %opp.id, error = %e, "Backtest execution failed");
+                    bucket_exec_errors += 1;
+                }
             }
         }
         total_trades += bucket_trades;
@@ -565,6 +654,8 @@ pub async fn backtest_historical(
             "ts": bucket_ts.to_rfc3339(),
             "opportunities_detected": detected,
             "trades_executed": bucket_trades,
+            "execution_errors": bucket_exec_errors,
+            "detector_errors": detector_errors,
             "cumulative_pnl": cumulative_pnl.to_string(),
         }));
     }

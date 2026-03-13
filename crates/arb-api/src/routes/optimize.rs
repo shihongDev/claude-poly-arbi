@@ -23,6 +23,14 @@ pub async fn impact(
     State(state): State<AppState>,
     Json(req): Json<ImpactRequest>,
 ) -> impl IntoResponse {
+    if req.size <= Decimal::ZERO {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "size must be positive" })),
+        )
+            .into_response();
+    }
+
     let side = match req.side.to_lowercase().as_str() {
         "buy" => Side::Buy,
         "sell" => Side::Sell,
@@ -114,7 +122,38 @@ pub async fn optimize(
     State(state): State<AppState>,
     Json(req): Json<OptimizeRequest>,
 ) -> impl IntoResponse {
+    // Input validation
+    if req.candidates.len() > 200 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Too many candidates (max 200)" })),
+        )
+            .into_response();
+    }
     let kelly_mult = req.kelly_multiplier.unwrap_or(0.25);
+    if kelly_mult <= 0.0 || kelly_mult > 1.0 || kelly_mult.is_nan() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "kelly_multiplier must be in (0.0, 1.0]" })),
+        )
+            .into_response();
+    }
+    for c in &req.candidates {
+        if c.confidence.is_nan() || c.confidence.is_infinite() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "confidence must be a finite number" })),
+            )
+                .into_response();
+        }
+        if c.loss_if_wrong <= Decimal::ZERO {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "loss_if_wrong must be positive" })),
+            )
+                .into_response();
+        }
+    }
 
     // Read current bankroll from risk limits (equity = starting_equity for now)
     let bankroll = match state.config.read() {

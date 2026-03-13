@@ -69,16 +69,27 @@ async fn main() -> anyhow::Result<()> {
     // ── Load persisted execution history ───────────────────────
     let initial_history: Vec<ExecutionReport> = if history_path.exists() {
         match std::fs::read_to_string(&history_path) {
-            Ok(content) => {
-                let history: Vec<ExecutionReport> =
-                    serde_json::from_str(&content).unwrap_or_default();
-                tracing::info!(
-                    path = %history_path.display(),
-                    trade_count = history.len(),
-                    "Loaded execution history from disk"
-                );
-                history
-            }
+            Ok(content) => match serde_json::from_str::<Vec<ExecutionReport>>(&content) {
+                Ok(history) => {
+                    tracing::info!(
+                        path = %history_path.display(),
+                        trade_count = history.len(),
+                        "Loaded execution history from disk"
+                    );
+                    history
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        path = %history_path.display(),
+                        bytes = content.len(),
+                        "Failed to parse execution history — backing up corrupt file"
+                    );
+                    let bak = history_path.with_extension("json.bak");
+                    let _ = std::fs::rename(&history_path, &bak);
+                    Vec::new()
+                }
+            },
             Err(e) => {
                 tracing::warn!(
                     error = %e,
@@ -99,19 +110,19 @@ async fn main() -> anyhow::Result<()> {
     let executor: Arc<dyn TradeExecutor> = if config.is_live() {
         tracing::info!("Starting in LIVE trading mode");
         let key_path = config.general.key_file.as_ref().map(std::path::Path::new);
-        match arb_execution::executor::LiveTradeExecutor::from_key_file(
+        let live = arb_execution::executor::LiveTradeExecutor::from_key_file(
             key_path,
             config.slippage.prefer_post_only,
             config.risk.order_timeout_secs,
         )
         .await
-        {
-            Ok(live) => Arc::new(live),
-            Err(e) => {
-                tracing::error!("Failed to initialize live executor: {e}. Falling back to paper.");
-                Arc::new(arb_execution::paper_trade::PaperTradeExecutor::default_pessimism())
-            }
-        }
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Live mode requested but authentication failed: {e}. \
+                 Fix your key_file config or remove --live to use paper mode."
+            )
+        })?;
+        Arc::new(live)
     } else {
         tracing::info!("Starting in PAPER trading mode");
         Arc::new(arb_execution::paper_trade::PaperTradeExecutor::default_pessimism())

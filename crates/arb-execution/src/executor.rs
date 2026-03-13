@@ -237,8 +237,13 @@ impl TradeExecutor for LiveTradeExecutor {
         let mut total_slippage = Decimal::ZERO;
         let mut total_fees = Decimal::ZERO;
 
-        for leg in &opp.legs {
+        for (i, leg) in opp.legs.iter().enumerate() {
             let report = self.execute_leg(leg).await?;
+
+            let failed = matches!(
+                report.status,
+                FillStatus::Rejected | FillStatus::Cancelled
+            );
 
             let slippage =
                 (report.actual_fill_price - report.expected_vwap).abs() * report.filled_size;
@@ -247,19 +252,19 @@ impl TradeExecutor for LiveTradeExecutor {
             total_slippage += slippage;
             total_fees += fee;
             leg_reports.push(report);
-        }
 
-        // Check if any legs failed
-        let any_failed = leg_reports
-            .iter()
-            .any(|r| matches!(r.status, FillStatus::Rejected | FillStatus::Cancelled));
-
-        if any_failed {
-            warn!(
-                opportunity_id = %opp.id,
-                "Some legs failed — cancelling remaining orders"
-            );
-            self.cancel_all().await?;
+            // Abort immediately on leg failure to prevent one-sided exposure.
+            // cancel_all() cancels resting orders but cannot undo filled legs.
+            if failed {
+                warn!(
+                    opportunity_id = %opp.id,
+                    failed_leg = i,
+                    remaining = opp.legs.len() - i - 1,
+                    "Leg failed — aborting remaining legs and cancelling resting orders"
+                );
+                self.cancel_all().await?;
+                break;
+            }
         }
 
         let realized_edge = opp.gross_edge * opp.size_available - total_slippage - total_fees;

@@ -352,9 +352,13 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
             }
         }
 
-        // Refine edge with VWAP
+        // Refine edge with VWAP — zero out net_edge on failure so the
+        // opportunity falls below min_edge_bps and is excluded from execution.
         for opp in &mut opportunities {
-            let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
+            if let Err(e) = edge_calculator.refine_with_vwap(opp, &state.market_cache) {
+                debug!(opp_id = %opp.id, error = %e, "VWAP refinement failed, excluding from execution");
+                opp.net_edge = Decimal::ZERO;
+            }
         }
 
         // Enrich opportunities with ensemble probability estimates
