@@ -9,7 +9,7 @@ use rusqlite::{Connection, params};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use arb_core::{MarketState, OrderbookLevel};
 
@@ -151,6 +151,49 @@ impl PriceHistoryStore {
 
     /// Record multiple markets in a single transaction (for engine cycle bulk writes).
     pub fn record_markets(&self, markets: &[MarketState]) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now_ms = Utc::now().timestamp_millis();
+
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO price_ticks (condition_id, token_id, price, best_bid, best_ask, volume_24h, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+
+            for market in markets {
+                for (i, token_id) in market.token_ids.iter().enumerate() {
+                    let price = market
+                        .outcome_prices
+                        .get(i)
+                        .copied()
+                        .unwrap_or(Decimal::ZERO);
+
+                    stmt.execute(params![
+                        market.condition_id,
+                        token_id,
+                        decimal_to_f64(&price),
+                        opt_decimal_to_f64(&market.best_bid),
+                        opt_decimal_to_f64(&market.best_ask),
+                        opt_decimal_to_f64(&market.volume_24hr),
+                        now_ms,
+                    ])?;
+                }
+            }
+        }
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    /// Record price ticks from Arc<MarketState> references without cloning.
+    ///
+    /// Avoids the expensive deep clone of orderbooks that `record_markets` requires
+    /// when called with owned `MarketState` values.
+    pub fn record_markets_arc(
+        &self,
+        markets: &[Arc<MarketState>],
+    ) -> anyhow::Result<()> {
         let conn = self.conn.lock().unwrap();
         let now_ms = Utc::now().timestamp_millis();
 
@@ -406,6 +449,53 @@ impl PriceHistoryStore {
                     asks_json,
                     now_ms,
                 ])?;
+            }
+        }
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    /// Record orderbook snapshots for multiple markets in a single transaction.
+    ///
+    /// Much more efficient than calling `record_orderbook_snapshot` per market
+    /// because it acquires the mutex lock and opens a transaction only once.
+    pub fn record_orderbook_snapshots_batch(
+        &self,
+        markets: &[&MarketState],
+    ) -> anyhow::Result<()> {
+        if markets.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        let now_ms = Utc::now().timestamp_millis();
+
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO orderbook_snapshots (condition_id, token_id, bids_json, asks_json, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+
+            for market in markets {
+                for ob in &market.orderbooks {
+                    if ob.bids.is_empty() && ob.asks.is_empty() {
+                        continue;
+                    }
+                    let top_bids: Vec<&OrderbookLevel> = ob.bids.iter().take(10).collect();
+                    let top_asks: Vec<&OrderbookLevel> = ob.asks.iter().take(10).collect();
+
+                    let bids_json = serde_json::to_string(&top_bids)?;
+                    let asks_json = serde_json::to_string(&top_asks)?;
+
+                    stmt.execute(params![
+                        market.condition_id,
+                        ob.token_id,
+                        bids_json,
+                        asks_json,
+                        now_ms,
+                    ])?;
+                }
             }
         }
         tx.commit()?;

@@ -226,17 +226,19 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
             info!(count = books.len(), "Engine: orderbooks fetched");
             let mut updated_markets = Vec::new();
             for market in state.market_cache.active_markets() {
-                let mut new_books = Vec::new();
-                for tid in &market.token_ids {
-                    if let Some(book) = books.get(tid) {
-                        new_books.push(book.clone());
-                    }
-                }
+                let new_books: Vec<_> = market
+                    .token_ids
+                    .iter()
+                    .filter_map(|tid| books.get(tid).cloned())
+                    .collect();
                 if !new_books.is_empty() {
                     let mut updated = (*market).clone();
                     updated.orderbooks = new_books;
-                    state.market_cache.update_one(updated.clone());
-                    updated_markets.push(updated);
+                    state.market_cache.update_one(updated);
+                    // Re-fetch the Arc for broadcasting (avoids second clone)
+                    if let Some(arc_market) = state.market_cache.get(&market.condition_id) {
+                        updated_markets.push(arc_market);
+                    }
                 }
             }
 
@@ -306,9 +308,12 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
                     Ok(books) => {
                         let mut updated = (**market).clone();
                         updated.orderbooks = books;
-                        state.market_cache.update_one(updated.clone());
+                        state.market_cache.update_one(updated);
                         poller.record_poll(&market.condition_id);
-                        let _ = broadcast_event(&state, "market_update", &updated);
+                        // Broadcast the Arc version (avoids extra clone)
+                        if let Some(arc_m) = state.market_cache.get(&market.condition_id) {
+                            let _ = broadcast_event(&state, "market_update", &*arc_m);
+                        }
                     }
                     Err(e) => {
                         debug!(market = %market.condition_id, error = %e, "Orderbook refresh failed");
@@ -338,16 +343,24 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
         last_scan_gen = current_gen;
         let mut opportunities = Vec::new();
 
-        for detector in &detectors {
-            match detector.scan(&markets_snapshot).await {
+        // Run all detectors in parallel — each is independent and read-only
+        // over the market snapshot. This is the biggest perf win on multi-core.
+        let scan_futures: Vec<_> = detectors
+            .iter()
+            .map(|d| d.scan(&markets_snapshot))
+            .collect();
+        let scan_results = futures_util::future::join_all(scan_futures).await;
+
+        for result in scan_results {
+            match result {
                 Ok(opps) => {
                     if !opps.is_empty() {
-                        debug!(detector = %detector.arb_type(), count = opps.len(), "Opportunities found");
+                        debug!(count = opps.len(), "Opportunities found");
                     }
                     opportunities.extend(opps);
                 }
                 Err(e) => {
-                    debug!(detector = %detector.arb_type(), error = %e, "Detector error");
+                    debug!(error = %e, "Detector error");
                 }
             }
         }
@@ -375,19 +388,26 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
             }
         }
 
-        // Record changed market prices to historical store every cycle.
+        // Record market prices and orderbook snapshots to SQLite.
+        // Uses Arc-aware methods to avoid deep-cloning MarketState (which
+        // includes orderbook vectors). Batch snapshot recording uses a single
+        // transaction instead of one per market.
         if let Some(ref store) = price_store
             && !markets_snapshot.is_empty()
         {
-            let dereffed: Vec<_> = markets_snapshot.iter().map(|m| (**m).clone()).collect();
-            if let Err(e) = store.record_markets(&dereffed) {
+            if let Err(e) = store.record_markets_arc(&markets_snapshot) {
                 debug!(error = %e, "Price history recording failed");
             }
-            // Also record orderbook snapshots
-            for market in &dereffed {
-                if let Err(e) = store.record_orderbook_snapshot(market) {
-                    debug!(error = %e, "Orderbook snapshot recording failed");
-                }
+            // Batch all orderbook snapshots in one transaction
+            let markets_with_books: Vec<&arb_core::MarketState> = markets_snapshot
+                .iter()
+                .filter(|m| !m.orderbooks.is_empty())
+                .map(|m| m.as_ref())
+                .collect();
+            if !markets_with_books.is_empty()
+                && let Err(e) = store.record_orderbook_snapshots_batch(&markets_with_books)
+            {
+                debug!(error = %e, "Orderbook snapshot batch recording failed");
             }
         }
 
@@ -474,10 +494,11 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
             let _ = broadcast_event(&state, "opportunities_batch", &opportunities);
         }
 
-        // Broadcast periodic metrics + positions update, and cache metrics JSON
-        {
+        // Broadcast periodic metrics + positions update, and cache metrics JSON.
+        // Extract data from locks quickly, then serialize/broadcast outside locks.
+        let (metrics, positions) = {
             let rl = state.risk_limits.lock().unwrap();
-            let metrics = serde_json::json!({
+            let m = serde_json::json!({
                 "brier_score": rl.metrics().brier_score(),
                 "drawdown_pct": rl.metrics().drawdown_pct(),
                 "execution_quality": rl.metrics().execution_quality().to_string(),
@@ -493,20 +514,22 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
                     "MultiOutcome": rl.metrics().pnl_for_type(ArbType::MultiOutcome).to_string(),
                 }
             });
+            let p = rl
+                .positions()
+                .lock()
+                .ok()
+                .map(|t| t.all_positions().into_iter().cloned().collect::<Vec<_>>());
+            (m, p)
+        }; // lock dropped — serialize + broadcast without holding it
 
-            // Cache the serialized metrics so /api/metrics doesn't need the mutex
-            if let Ok(json_str) = serde_json::to_string(&metrics)
-                && let Ok(mut cached) = state.cached_metrics_json.write()
-            {
-                *cached = json_str;
-            }
-
-            let _ = broadcast_event(&state, "metrics_update", &metrics);
-
-            if let Ok(tracker) = rl.positions().lock() {
-                let positions: Vec<_> = tracker.all_positions().into_iter().cloned().collect();
-                let _ = broadcast_event(&state, "position_update", &positions);
-            }
+        if let Ok(json_str) = serde_json::to_string(&metrics)
+            && let Ok(mut cached) = state.cached_metrics_json.write()
+        {
+            *cached = json_str;
+        }
+        let _ = broadcast_event(&state, "metrics_update", &metrics);
+        if let Some(positions) = positions {
+            let _ = broadcast_event(&state, "position_update", &positions);
         }
 
         // Periodic maintenance: clean stale poller entries every 100 cycles (~8 min)
