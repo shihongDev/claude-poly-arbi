@@ -150,6 +150,7 @@ A second retry at t=20s catches markets that take ~15s to load from the Polymark
   - `/api/history`: 10s
 - **10s timeout** on all requests via AbortController
 - POST/PUT/DELETE bypass both cache and dedup
+- **No silent fallbacks**: All functions propagate errors to callers. Components handle failures with their own loading/error UI (skeletons, error cards, alerts).
 
 ---
 

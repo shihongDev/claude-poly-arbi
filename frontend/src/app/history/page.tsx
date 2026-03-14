@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import dynamic from "next/dynamic";
 import { useDashboardStore } from "@/store";
 import { MetricCard } from "@/components/metric-card";
 import { DataTable, type Column } from "@/components/data-table";
@@ -27,20 +26,18 @@ import {
   formatPnl,
   formatDecimal,
   timeAgo,
+  truncateId,
   cn,
 } from "@/lib/utils";
 import type { ExecutionReport, LegReport, TradingMode } from "@/lib/types";
 
-const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
+import { DailyPnlCalendar } from "@/components/daily-pnl-calendar";
+import { SlippageScatterEnhanced } from "@/components/slippage-scatter-enhanced";
 
 type ModeFilter = "All" | "Paper" | "Live";
 
 const MODE_FILTERS: ModeFilter[] = ["All", "Paper", "Live"];
 
-function truncateId(id: string, chars = 8): string {
-  if (id.length <= chars) return id;
-  return id.slice(0, chars);
-}
 
 function modeBadge(mode: TradingMode) {
   return mode === "Paper" ? (
@@ -204,128 +201,6 @@ export default function HistoryPage() {
     return sum / filteredHistory.length;
   }, [filteredHistory]);
 
-  // Slippage scatter data
-  const scatterChartOption = useMemo(() => {
-    const overpaid: [number, number][] = [];
-    const underpaid: [number, number][] = [];
-
-    for (const report of filteredHistory) {
-      for (const leg of report.legs) {
-        const expected = parseFloat(leg.expected_vwap);
-        const actual = parseFloat(leg.actual_fill_price);
-        if (isNaN(expected) || isNaN(actual)) continue;
-        if (actual >= expected) {
-          overpaid.push([expected, actual]);
-        } else {
-          underpaid.push([expected, actual]);
-        }
-      }
-    }
-
-    if (overpaid.length === 0 && underpaid.length === 0) return null;
-
-    // Compute axis range for the diagonal line
-    const allX = [...overpaid, ...underpaid].map((p) => p[0]);
-    const allY = [...overpaid, ...underpaid].map((p) => p[1]);
-    const minVal = Math.min(...allX, ...allY);
-    const maxVal = Math.max(...allX, ...allY);
-    const padding = (maxVal - minVal) * 0.05 || 0.01;
-    const axisMin = Math.max(0, minVal - padding);
-    const axisMax = maxVal + padding;
-
-    return {
-      tooltip: {
-        trigger: "item" as const,
-        backgroundColor: "#FFFFFF",
-        borderColor: "#E6E4DF",
-        textStyle: { color: "#1A1A19", fontFamily: "var(--font-jetbrains-mono)" },
-        formatter: (params: { value: [number, number] }) => {
-          const [expected, actual] = params.value;
-          const diff = actual - expected;
-          const sign = diff >= 0 ? "+" : "";
-          return [
-            `Expected VWAP: ${expected.toFixed(4)}`,
-            `Actual Fill: ${actual.toFixed(4)}`,
-            `Slippage: ${sign}${diff.toFixed(4)}`,
-          ].join("<br/>");
-        },
-      },
-      grid: { left: 60, right: 24, top: 24, bottom: 48 },
-      xAxis: {
-        type: "value" as const,
-        name: "Expected VWAP",
-        nameLocation: "center" as const,
-        nameGap: 32,
-        nameTextStyle: { color: "#6B6B6B", fontSize: 11 },
-        min: axisMin,
-        max: axisMax,
-        axisLine: { lineStyle: { color: "#E6E4DF" } },
-        axisLabel: {
-          color: "#6B6B6B",
-          fontSize: 11,
-          fontFamily: "var(--font-jetbrains-mono)",
-        },
-        splitLine: { lineStyle: { color: "#F0EEEA" } },
-      },
-      yAxis: {
-        type: "value" as const,
-        name: "Actual Fill Price",
-        nameLocation: "center" as const,
-        nameGap: 44,
-        nameTextStyle: { color: "#6B6B6B", fontSize: 11 },
-        min: axisMin,
-        max: axisMax,
-        axisLine: { lineStyle: { color: "#E6E4DF" } },
-        axisLabel: {
-          color: "#6B6B6B",
-          fontSize: 11,
-          fontFamily: "var(--font-jetbrains-mono)",
-        },
-        splitLine: { lineStyle: { color: "#F0EEEA" } },
-      },
-      series: [
-        {
-          name: "Perfect Execution",
-          type: "line" as const,
-          data: [
-            [axisMin, axisMin],
-            [axisMax, axisMax],
-          ],
-          lineStyle: { color: "#9B9B9B", type: "dashed" as const, width: 1 },
-          symbol: "none",
-          silent: true,
-          z: 1,
-        },
-        {
-          name: "Overpaid",
-          type: "scatter" as const,
-          data: overpaid,
-          itemStyle: { color: "#B44C3F", opacity: 0.7 },
-          symbolSize: 6,
-          z: 2,
-        },
-        {
-          name: "Underpaid",
-          type: "scatter" as const,
-          data: underpaid,
-          itemStyle: { color: "#2D6A4F", opacity: 0.7 },
-          symbolSize: 6,
-          z: 2,
-        },
-      ],
-      legend: {
-        bottom: 0,
-        textStyle: { color: "#6B6B6B", fontSize: 11 },
-        itemWidth: 10,
-        itemHeight: 10,
-        data: [
-          { name: "Overpaid", icon: "circle" },
-          { name: "Underpaid", icon: "circle" },
-        ],
-      },
-    };
-  }, [filteredHistory]);
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -356,6 +231,9 @@ export default function HistoryPage() {
           }
         />
       </div>
+
+      {/* Daily P&L Calendar */}
+      <DailyPnlCalendar history={history} />
 
       {/* Filter Bar */}
       <div className="flex items-center gap-2">
@@ -400,27 +278,8 @@ export default function HistoryPage() {
         )}
       </div>
 
-      {/* Slippage Analysis Chart */}
-      <div className="rounded-2xl bg-white">
-        <div className="border-b border-[#E6E4DF] px-5 py-4">
-          <h2 className="text-[11px] font-medium uppercase tracking-wider text-[#9B9B9B]">
-            Slippage Analysis
-          </h2>
-        </div>
-        <div className="p-4">
-          {scatterChartOption ? (
-            <ReactECharts
-              option={scatterChartOption}
-              style={{ height: 320, width: "100%" }}
-              opts={{ renderer: "canvas" }}
-            />
-          ) : (
-            <div className="flex h-[320px] items-center justify-center text-sm text-[#9B9B9B]">
-              No leg data to chart
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Enhanced Slippage Scatter */}
+      <SlippageScatterEnhanced history={filteredHistory} />
 
       {/* Detail Dialog */}
       <Dialog

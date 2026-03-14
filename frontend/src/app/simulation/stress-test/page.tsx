@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { runStressTest } from "@/lib/api";
 import type { StressScenarioType, StressTestResult } from "@/lib/types";
+import { VarScenarioComparison } from "@/components/var-scenario-comparison";
 
 const MONO = { fontFamily: "var(--font-jetbrains-mono)" };
 
@@ -457,6 +458,9 @@ export default function StressTestPage() {
           <ResultsComparison result={result} />
         </div>
       )}
+
+      {/* VaR Scenario Comparison — All Scenarios At Once */}
+      <VarScenarioComparison />
     </div>
   );
 }

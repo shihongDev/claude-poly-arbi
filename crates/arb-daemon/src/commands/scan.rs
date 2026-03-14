@@ -82,7 +82,11 @@ pub async fn execute() -> anyhow::Result<()> {
     }
 
     // Refine with VWAP
-    let edge_calc = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
+    let edge_calc = EdgeCalculator::from_config(
+        &config.fees,
+        config.slippage.prefer_post_only,
+        slippage_estimator.clone(),
+    );
     for opp in &mut all_opportunities {
         let _ = edge_calc.refine_with_vwap(opp, &cache);
     }
@@ -320,7 +324,11 @@ pub async fn execute_comprehensive(
     }
 
     // Refine with VWAP
-    let edge_calc = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
+    let edge_calc = EdgeCalculator::from_config(
+        &config.fees,
+        config.slippage.prefer_post_only,
+        slippage_estimator.clone(),
+    );
     for (opp, _) in &mut all_opportunities {
         let _ = edge_calc.refine_with_vwap(opp, &cache);
     }

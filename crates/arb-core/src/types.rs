@@ -293,19 +293,88 @@ pub enum CorrelationRelationship {
 /// All fields are optional — `None` means "use current live config value".
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SandboxConfigOverrides {
-    // Strategy
+    // ── Strategy toggles ─────────────────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_edge_bps: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intra_market_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cross_market_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multi_outcome_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution_sniping_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_market_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_spike_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prob_model_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquidity_sniping_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_making_enabled: Option<bool>,
+
+    // ── Per-strategy config ──────────────────────────────────
+    // Intra-market
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intra_min_deviation: Option<Decimal>,
+    // Cross-market
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cross_min_implied_edge: Option<Decimal>,
+    // Multi-outcome
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multi_min_deviation: Option<Decimal>,
-    // Slippage
+    // Resolution sniping
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub res_min_price: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub res_max_price: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub res_max_hours: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub res_min_volume: Option<Decimal>,
+    // Stale market
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_max_hours: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_min_divergence_bps: Option<u64>,
+    // Volume spike
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vol_spike_multiplier: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vol_min_absolute_volume: Option<Decimal>,
+    // Prob model
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prob_min_deviation_bps: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prob_min_confidence: Option<f64>,
+    // Liquidity sniping
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liq_min_depth_change_pct: Option<f64>,
+    // Market making
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mm_target_spread_bps: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mm_max_inventory: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mm_min_volume: Option<Decimal>,
+
+    // ── Slippage ─────────────────────────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_slippage_bps: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vwap_depth_levels: Option<usize>,
-    // Risk
+
+    // ── Risk ─────────────────────────────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_position_per_market: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_total_exposure: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_loss_limit: Option<Decimal>,
+
+    // ── Fee override ─────────────────────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fee_rate_override: Option<Decimal>,
 }

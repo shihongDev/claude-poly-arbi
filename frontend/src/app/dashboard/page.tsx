@@ -8,6 +8,8 @@ import { PnlChart } from "@/components/pnl-chart";
 import { RiskGauge } from "@/components/risk-gauge";
 import { DataTable, type Column } from "@/components/data-table";
 import { SimulationStatusPanel } from "@/components/simulation-status";
+import { PositionPnlWaterfall } from "@/components/position-pnl-waterfall";
+import { WinRateByStrategy } from "@/components/win-rate-by-strategy";
 import { Button } from "@/components/ui/button";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +19,8 @@ import {
   formatPnl,
   formatPercent,
   formatDecimal,
+  truncateId,
+  MONO_FONT,
   cn,
 } from "@/lib/utils";
 import type { Position } from "@/lib/types";
@@ -30,15 +34,9 @@ const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 // ---------------------------------------------------------------------------
 
 const MAX_TOTAL_EXPOSURE = 5000;
-const MONO_FONT = "var(--font-jetbrains-mono), JetBrains Mono, monospace";
-
-function truncateId(id: string, chars = 8): string {
-  if (id.length <= chars * 2 + 3) return id;
-  return `${id.slice(0, chars)}...${id.slice(-chars)}`;
-}
 
 function exposure(pos: Position): number {
-  return Math.abs(parseFloat(pos.size) * parseFloat(pos.current_price));
+  return Math.abs((parseFloat(pos.size) || 0) * (parseFloat(pos.current_price) || 0));
 }
 
 /** Null-safe wrapper for chart sections */
@@ -356,14 +354,18 @@ const SLICE_COLORS = [
 ];
 
 function buildExposureDonutOption(positions: Position[]) {
-  const dataByMarket = new Map<string, number>();
+  const dataByMarket = new Map<string, { label: string; value: number }>();
   for (const pos of positions) {
-    const key = truncateId(pos.condition_id, 6);
-    dataByMarket.set(key, (dataByMarket.get(key) ?? 0) + exposure(pos));
+    const key = pos.condition_id;
+    const existing = dataByMarket.get(key);
+    dataByMarket.set(key, {
+      label: existing?.label ?? truncateId(pos.condition_id, 6),
+      value: (existing?.value ?? 0) + exposure(pos),
+    });
   }
 
-  const seriesData = Array.from(dataByMarket.entries()).map(
-    ([name, value]) => ({ name, value: Math.round(value * 100) / 100 })
+  const seriesData = Array.from(dataByMarket.values()).map(
+    ({ label, value }) => ({ name: label, value: Math.round(value * 100) / 100 })
   );
 
   return {
@@ -418,6 +420,7 @@ export default function PortfolioPage() {
   const metrics = useDashboardStore((s) => s.metrics);
   const positions = useDashboardStore((s) => s.positions);
   const history = useDashboardStore((s) => s.history);
+  const opportunities = useDashboardStore((s) => s.opportunities);
 
   // -- Equity curve (from Dashboard) --
   const equityCurve = useMemo(() => {
@@ -769,6 +772,9 @@ export default function PortfolioPage() {
         </div>
       </div>
 
+      {/* Section 3b: Position PnL Waterfall */}
+      <PositionPnlWaterfall positions={positions} />
+
       {/* Section 4: Performance Charts — Brier + Exec Quality + P&L by Strategy */}
       <div className="grid gap-6 lg:grid-cols-3">
         <ChartPanel title="Brier Score" hasData={brierOption !== null}>
@@ -805,7 +811,10 @@ export default function PortfolioPage() {
         </ChartPanel>
       </div>
 
-      {/* Section 5: Simulation Engine Status */}
+      {/* Section 5: Win Rate by Strategy */}
+      <WinRateByStrategy history={history} opportunities={opportunities} />
+
+      {/* Section 6: Simulation Engine Status */}
       <SimulationStatusPanel />
     </div>
   );

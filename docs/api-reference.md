@@ -506,6 +506,11 @@ Run a named stress scenario against current positions.
 }
 ```
 
+**Error (500):**
+```json
+{"error": "stress test failed: insufficient position data"}
+```
+
 ---
 
 ## GET /api/simulation/status
@@ -546,6 +551,11 @@ Current simulation engine status including probability estimates, convergence di
     "method": "Parametric"
   }
 }
+```
+
+**Error (500):**
+```json
+{"error": "simulation engine not initialized"}
 ```
 
 ---

@@ -129,7 +129,11 @@ async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> a
         )));
     }
 
-    let edge_calculator = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
+    let edge_calculator = EdgeCalculator::from_config(
+        &config.fees,
+        config.slippage.prefer_post_only,
+        slippage_estimator.clone(),
+    );
 
     // Probability estimator (ensemble of MC + particle filter)
     let prob_estimator = EnsembleEstimator::from_config(

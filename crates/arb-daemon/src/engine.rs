@@ -13,7 +13,9 @@ use arb_data::correlation::CorrelationGraph;
 use arb_data::market_cache::MarketCache;
 use arb_data::orderbook::OrderbookProcessor;
 use arb_data::poller::{MarketPoller, SdkMarketDataSource};
+use arb_execution::executor::LiveTradeExecutor;
 use arb_execution::paper_trade::PaperTradeExecutor;
+use arb_execution::preflight;
 use arb_monitor::alerts::AlertManager;
 use arb_risk::limits::RiskLimits;
 use arb_strategy::cross_market::CrossMarketDetector;
@@ -70,18 +72,18 @@ impl ArbEngine {
         }
 
         if config.strategy.cross_market_enabled {
-            let correlation_graph = if let Some(ref file) =
+            let mut correlation_graph = if let Some(ref file) =
                 config.strategy.cross_market.correlation_file
             {
                 let path = ArbConfig::config_dir().join(file);
                 if path.exists() {
                     CorrelationGraph::load(&path).unwrap_or_else(|e| {
-                        warn!("Failed to load correlation file: {e}. Cross-market disabled.");
+                        warn!("Failed to load correlation file: {e}. Starting with empty graph.");
                         CorrelationGraph::empty()
                     })
                 } else {
                     info!(
-                        "No correlation file found at {}. Cross-market detection will find no pairs.",
+                        "No correlation file found at {}. Starting with empty graph.",
                         path.display()
                     );
                     CorrelationGraph::empty()
@@ -89,6 +91,32 @@ impl ArbEngine {
             } else {
                 CorrelationGraph::empty()
             };
+
+            let manual_count = correlation_graph.len();
+
+            // Auto-detect correlations from live market data
+            info!("Fetching markets for auto-correlation detection...");
+            match data_source.fetch_markets().await {
+                Ok(markets) => {
+                    let auto_pairs = CorrelationGraph::auto_detect(&markets);
+                    let auto_count = auto_pairs.len();
+                    correlation_graph.merge(auto_pairs);
+                    info!(
+                        auto_detected = auto_count,
+                        manual = manual_count,
+                        total = correlation_graph.len(),
+                        "Correlation graph built"
+                    );
+                    // Seed the cache so run() doesn't start cold
+                    cache.update(&markets);
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "Failed to fetch markets for auto-correlation. Using manual pairs only."
+                    );
+                }
+            }
 
             detectors.push(Box::new(CrossMarketDetector::new(
                 config.strategy.cross_market.clone(),
@@ -139,10 +167,51 @@ impl ArbEngine {
             )));
         }
 
-        let edge_calculator = EdgeCalculator::default_with_estimator(slippage_estimator.clone());
+        let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
+        let edge_calculator = EdgeCalculator::from_config(
+            &config.fees,
+            config.slippage.prefer_post_only,
+            slippage_estimator.clone(),
+        );
 
-        // Executor: paper by default, live requires --live flag
-        let executor: Box<dyn TradeExecutor> = Box::new(PaperTradeExecutor::default_pessimism());
+        // Executor: paper by default, live requires trading_mode = "live"
+        let executor: Box<dyn TradeExecutor> = if config.is_live() {
+            let key_path = config.general.key_file.as_ref().map(std::path::PathBuf::from);
+
+            // Run preflight checks before going live
+            info!("Live mode requested — running preflight checks...");
+            let live = LiveTradeExecutor::from_key_file(
+                key_path.as_deref(),
+                config.slippage.prefer_post_only,
+                config.risk.order_timeout_secs,
+                fee_rate,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to initialize live executor: {e}"))?;
+
+            // Run EOA preflight checks (gas balance, etc.)
+            let address = live.signer().address();
+            match preflight::run_preflight_checks(address).await {
+                Ok(result) if result.is_ok() => {
+                    info!("Preflight checks passed");
+                }
+                Ok(result) => {
+                    for warning in &result.warnings {
+                        warn!(warning = %warning, "Preflight warning");
+                    }
+                    warn!("Preflight checks completed with warnings — proceeding anyway");
+                }
+                Err(e) => {
+                    warn!(error = %e, "Preflight checks failed — proceeding with caution");
+                }
+            }
+
+            info!("Live executor initialized successfully");
+            Box::new(live)
+        } else {
+            info!("Paper trading mode");
+            Box::new(PaperTradeExecutor::with_fee_rate(fee_rate))
+        };
 
         let risk_manager = RiskLimits::new(config.risk.clone(), config.general.starting_equity);
         let monitor = AlertManager::new(config.alerts.clone());
@@ -162,7 +231,14 @@ impl ArbEngine {
 
     /// Main event loop. Runs until Ctrl+C or kill switch.
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        info!("Arb engine starting main loop");
+        let mode = if self.config.is_live() { "LIVE" } else { "paper" };
+        info!(mode = %mode, "Arb engine starting main loop");
+        info!(
+            hot_secs = self.config.polling.hot_interval_secs,
+            warm_secs = self.config.polling.warm_interval_secs,
+            cold_secs = self.config.polling.cold_interval_secs,
+            "Polling intervals configured"
+        );
 
         // Initial market fetch
         info!("Fetching initial market data...");

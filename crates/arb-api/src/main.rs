@@ -107,6 +107,7 @@ async fn main() -> anyhow::Result<()> {
     let kill_switch_initial = arb_risk::kill_switch::KillSwitch::new().is_active();
 
     // ── Create executor based on configured trading mode ─────────
+    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
     let executor: Arc<dyn TradeExecutor> = if config.is_live() {
         tracing::info!("Starting in LIVE trading mode");
         let key_path = config.general.key_file.as_ref().map(std::path::Path::new);
@@ -114,6 +115,7 @@ async fn main() -> anyhow::Result<()> {
             key_path,
             config.slippage.prefer_post_only,
             config.risk.order_timeout_secs,
+            fee_rate,
         )
         .await
         .map_err(|e| {
@@ -125,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(live)
     } else {
         tracing::info!("Starting in PAPER trading mode");
-        Arc::new(arb_execution::paper_trade::PaperTradeExecutor::default_pessimism())
+        Arc::new(arb_execution::paper_trade::PaperTradeExecutor::with_fee_rate(fee_rate))
     };
 
     // ── Open price history store ─────────────────────────────────
@@ -193,6 +195,8 @@ async fn main() -> anyhow::Result<()> {
             post(routes::simulate::run_simulation),
         )
         .route("/api/sandbox/detect", post(routes::sandbox::detect))
+        .route("/api/sandbox/sweep", post(routes::sandbox::sweep))
+        .route("/api/sandbox/explain", post(routes::sandbox::explain))
         .route("/api/sandbox/backtest", post(routes::sandbox::backtest))
         .route(
             "/api/sandbox/backtest-historical",

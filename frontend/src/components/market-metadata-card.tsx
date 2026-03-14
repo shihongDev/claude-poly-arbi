@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn, formatEndDate, MONO_STYLE } from "@/lib/utils";
+import { cn, formatEndDate, truncateId, MONO_STYLE } from "@/lib/utils";
 import type { MarketState } from "@/lib/types";
 
 function CopyButton({ text }: { text: string }) {
@@ -42,11 +42,6 @@ function CopyButton({ text }: { text: string }) {
       )}
     </Button>
   );
-}
-
-function truncateId(id: string, chars = 10): string {
-  if (id.length <= chars * 2 + 3) return id;
-  return `${id.slice(0, chars)}...${id.slice(-chars)}`;
 }
 
 interface MarketMetadataCardProps {
