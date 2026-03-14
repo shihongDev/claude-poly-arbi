@@ -96,8 +96,7 @@ impl PositionTracker {
 
         match side {
             Side::Buy => {
-                let new_cost =
-                    pos.avg_entry_price * pos.size + price * size;
+                let new_cost = pos.avg_entry_price * pos.size + price * size;
                 pos.size += size;
                 if pos.size > Decimal::ZERO {
                     pos.avg_entry_price = new_cost / pos.size;
@@ -146,10 +145,7 @@ impl PositionTracker {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let mut file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)?;
+            let mut file = OpenOptions::new().create(true).append(true).open(path)?;
             writeln!(file, "{line}")?;
             Ok(())
         })();
@@ -220,7 +216,13 @@ impl PositionTracker {
                 .get(&entry.token_id)
                 .map(|p| p.condition_id.clone())
                 .unwrap_or_default();
-            self.apply_fill(&entry.token_id, &condition_id, side, entry.price, entry.size);
+            self.apply_fill(
+                &entry.token_id,
+                &condition_id,
+                side,
+                entry.price,
+                entry.size,
+            );
         }
     }
 

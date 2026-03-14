@@ -121,11 +121,7 @@ impl ParticleFilter {
     /// When ESS is low, the filter is relying on too few particles.
     pub fn effective_sample_size(&self) -> f64 {
         let sum_sq: f64 = self.weights.iter().map(|w| w * w).sum();
-        if sum_sq > 0.0 {
-            1.0 / sum_sq
-        } else {
-            0.0
-        }
+        if sum_sq > 0.0 { 1.0 / sum_sq } else { 0.0 }
     }
 
     /// Weighted mean probability.
@@ -242,11 +238,7 @@ mod tests {
 
         // After resampling, ESS should be healthy
         let ess = pf.effective_sample_size();
-        assert!(
-            ess > 100.0,
-            "ESS too low after single update: {}",
-            ess
-        );
+        assert!(ess > 100.0, "ESS too low after single update: {}", ess);
     }
 
     #[test]

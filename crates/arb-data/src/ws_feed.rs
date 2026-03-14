@@ -202,10 +202,8 @@ impl WsFeedClient {
             Some("price_change") => {
                 if let (Some(token_id), Some(price_str), Some(size_str), Some(side_str)) =
                     (&msg.market, &msg.price, &msg.size, &msg.side)
-                    && let (Ok(price), Ok(size)) = (
-                        price_str.parse::<Decimal>(),
-                        size_str.parse::<Decimal>(),
-                    )
+                    && let (Ok(price), Ok(size)) =
+                        (price_str.parse::<Decimal>(), size_str.parse::<Decimal>())
                 {
                     let book_lock = book_store.get_or_create(token_id);
                     let mut book = book_lock.write().await;

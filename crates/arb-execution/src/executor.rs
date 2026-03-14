@@ -1,13 +1,13 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use alloy::primitives::U256;
+use alloy::signers::local::PrivateKeySigner;
 use arb_core::{
-    ExecutionReport, FillStatus, LegReport, Opportunity, Side, TradingMode,
+    ExecutionReport, FillStatus, LegReport, OpenOrder, Opportunity, Side, TradingMode,
     error::{ArbError, Result},
     traits::TradeExecutor,
 };
-use alloy::primitives::U256;
-use alloy::signers::local::PrivateKeySigner;
 use async_trait::async_trait;
 use chrono::Utc;
 use polymarket_client_sdk::auth::Normal;
@@ -99,8 +99,9 @@ impl LiveTradeExecutor {
         );
 
         // Parse the string token_id into the SDK's U256 type
-        let token_id = U256::from_str(&leg.token_id)
-            .map_err(|e| ArbError::Execution(format!("Invalid token ID '{}': {e}", leg.token_id)))?;
+        let token_id = U256::from_str(&leg.token_id).map_err(|e| {
+            ArbError::Execution(format!("Invalid token ID '{}': {e}", leg.token_id))
+        })?;
 
         // Wrap the entire build → sign → post sequence in a timeout
         let timeout_dur = Duration::from_secs(self.order_timeout_secs);
@@ -154,20 +155,20 @@ impl LiveTradeExecutor {
                     FillStatus::Rejected
                 };
 
-                // The taking_amount represents what we received (the fill price * size).
-                // For a successful fill, approximate fill price from taking/making amounts.
-                let actual_fill_price =
-                    if response.success && response.taking_amount > Decimal::ZERO {
-                        // taking_amount / making_amount gives effective price for buys;
-                        // for sells it's making_amount / taking_amount.
-                        // Fall back to our VWAP estimate if amounts are zero.
-                        match leg.side {
-                            Side::Buy => response.taking_amount / response.making_amount,
-                            Side::Sell => response.making_amount / response.taking_amount,
-                        }
-                    } else {
-                        leg.vwap_estimate
-                    };
+                // Approximate fill price from taking/making amounts.
+                // Guard against division by zero — SDK may return zero amounts
+                // on rejected or edge-case fills.
+                let actual_fill_price = if response.success
+                    && response.taking_amount > Decimal::ZERO
+                    && response.making_amount > Decimal::ZERO
+                {
+                    match leg.side {
+                        Side::Buy => response.taking_amount / response.making_amount,
+                        Side::Sell => response.making_amount / response.taking_amount,
+                    }
+                } else {
+                    leg.vwap_estimate
+                };
 
                 let filled_size = if response.success {
                     leg.target_size
@@ -235,8 +236,13 @@ impl TradeExecutor for LiveTradeExecutor {
         let mut total_slippage = Decimal::ZERO;
         let mut total_fees = Decimal::ZERO;
 
-        for leg in &opp.legs {
+        for (i, leg) in opp.legs.iter().enumerate() {
             let report = self.execute_leg(leg).await?;
+
+            let failed = matches!(
+                report.status,
+                FillStatus::Rejected | FillStatus::Cancelled
+            );
 
             let slippage = (report.actual_fill_price - report.expected_vwap).abs()
                 * report.filled_size;
@@ -245,19 +251,19 @@ impl TradeExecutor for LiveTradeExecutor {
             total_slippage += slippage;
             total_fees += fee;
             leg_reports.push(report);
-        }
 
-        // Check if any legs failed
-        let any_failed = leg_reports
-            .iter()
-            .any(|r| matches!(r.status, FillStatus::Rejected | FillStatus::Cancelled));
-
-        if any_failed {
-            warn!(
-                opportunity_id = %opp.id,
-                "Some legs failed — cancelling remaining orders"
-            );
-            self.cancel_all().await?;
+            // Abort immediately on leg failure to prevent one-sided exposure.
+            // cancel_all() cancels resting orders but cannot undo filled legs.
+            if failed {
+                warn!(
+                    opportunity_id = %opp.id,
+                    failed_leg = i,
+                    remaining = opp.legs.len() - i - 1,
+                    "Leg failed — aborting remaining legs and cancelling resting orders"
+                );
+                self.cancel_all().await?;
+                break;
+            }
         }
 
         let realized_edge = opp.gross_edge * opp.size_available - total_slippage - total_fees;
@@ -273,6 +279,25 @@ impl TradeExecutor for LiveTradeExecutor {
         })
     }
 
+    async fn cancel_order(&self, order_id: &str) -> Result<()> {
+        info!(order_id, "Cancelling order");
+        self.clob_client
+            .cancel_order(order_id)
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to cancel order {order_id}: {e}")))?;
+        Ok(())
+    }
+
+    async fn cancel_orders(&self, order_ids: &[String]) -> Result<()> {
+        info!(count = order_ids.len(), "Cancelling multiple orders");
+        let refs: Vec<&str> = order_ids.iter().map(String::as_str).collect();
+        self.clob_client
+            .cancel_orders(&refs)
+            .await
+            .map_err(|e| ArbError::Execution(format!("Failed to cancel orders: {e}")))?;
+        Ok(())
+    }
+
     async fn cancel_all(&self) -> Result<()> {
         info!("Cancelling all open orders");
 
@@ -283,6 +308,20 @@ impl TradeExecutor for LiveTradeExecutor {
 
         info!("All orders cancelled");
         Ok(())
+    }
+
+    async fn open_orders(&self) -> Result<Vec<OpenOrder>> {
+        Err(ArbError::Execution(
+            "open_orders not yet wired to SDK".into(),
+        ))
+    }
+
+    async fn execute_batch(&self, opps: &[Opportunity]) -> Result<Vec<ExecutionReport>> {
+        let mut reports = Vec::with_capacity(opps.len());
+        for opp in opps {
+            reports.push(self.execute_opportunity(opp).await?);
+        }
+        Ok(reports)
     }
 
     fn mode(&self) -> TradingMode {

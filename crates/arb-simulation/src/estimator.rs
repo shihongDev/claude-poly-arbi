@@ -50,7 +50,10 @@ pub fn combine_estimates(estimates: &[SingleEstimate]) -> Option<CombinedEstimat
         return None;
     }
 
-    let weights: Vec<f64> = valid.iter().map(|e| 1.0 / e.standard_error.powi(2)).collect();
+    let weights: Vec<f64> = valid
+        .iter()
+        .map(|e| 1.0 / e.standard_error.powi(2))
+        .collect();
     let total_weight: f64 = weights.iter().sum();
 
     let p_hat: f64 = valid
@@ -129,9 +132,10 @@ impl ProbabilityEstimator for EnsembleEstimator {
 
         // 2. Particle filter estimate
         let pf_estimate = {
-            let mut filters = self.filters.lock().map_err(|e| {
-                ArbError::Simulation(format!("Particle filter lock: {e}"))
-            })?;
+            let mut filters = self
+                .filters
+                .lock()
+                .map_err(|e| ArbError::Simulation(format!("Particle filter lock: {e}")))?;
 
             let pf = filters
                 .entry(market.condition_id.clone())
@@ -168,7 +172,10 @@ impl ProbabilityEstimator for EnsembleEstimator {
         let combined = combine_estimates(&estimates).unwrap_or(CombinedEstimate {
             probability: initial_price,
             standard_error: 0.1,
-            confidence_interval: ((initial_price - 0.196).max(0.0), (initial_price + 0.196).min(1.0)),
+            confidence_interval: (
+                (initial_price - 0.196).max(0.0),
+                (initial_price + 0.196).min(1.0),
+            ),
             n_estimates: 0,
         });
 

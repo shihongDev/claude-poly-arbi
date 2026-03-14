@@ -61,16 +61,14 @@ pub async fn get_market(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     match state.market_cache.get(&id) {
-        Some(market) => {
-            match serde_json::to_value(&market) {
-                Ok(json) => (StatusCode::OK, Json(json)).into_response(),
-                Err(e) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("Serialization failed: {e}")})),
-                )
-                    .into_response(),
-            }
-        }
+        Some(market) => match serde_json::to_value(&market) {
+            Ok(json) => (StatusCode::OK, Json(json)).into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Serialization failed: {e}")})),
+            )
+                .into_response(),
+        },
         None => {
             let json = serde_json::json!({"error": "market not found"});
             (StatusCode::NOT_FOUND, Json(json)).into_response()

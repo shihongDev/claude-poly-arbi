@@ -78,8 +78,12 @@ impl IntraMarketDetector {
                 // Try VWAP at a reasonable size (smaller of max available or $1000)
                 let target_size = max_size.min(Decimal::from(1000));
 
-                let yes_vwap = self.slippage_estimator.estimate_vwap(yes_book, Side::Buy, target_size);
-                let no_vwap = self.slippage_estimator.estimate_vwap(no_book, Side::Buy, target_size);
+                let yes_vwap =
+                    self.slippage_estimator
+                        .estimate_vwap(yes_book, Side::Buy, target_size);
+                let no_vwap =
+                    self.slippage_estimator
+                        .estimate_vwap(no_book, Side::Buy, target_size);
 
                 if let (Ok(yv), Ok(nv)) = (yes_vwap, no_vwap) {
                     let vwap_sum = yv.vwap + nv.vwap;
@@ -157,8 +161,12 @@ impl IntraMarketDetector {
                 if max_size > Decimal::ZERO {
                     let target_size = max_size.min(Decimal::from(1000));
 
-                    let yes_vwap = self.slippage_estimator.estimate_vwap(yes_book, Side::Sell, target_size);
-                    let no_vwap = self.slippage_estimator.estimate_vwap(no_book, Side::Sell, target_size);
+                    let yes_vwap =
+                        self.slippage_estimator
+                            .estimate_vwap(yes_book, Side::Sell, target_size);
+                    let no_vwap =
+                        self.slippage_estimator
+                            .estimate_vwap(no_book, Side::Sell, target_size);
 
                     if let (Ok(yv), Ok(nv)) = (yes_vwap, no_vwap) {
                         let vwap_sum = yv.vwap + nv.vwap;

@@ -5,19 +5,21 @@ mod ws;
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Instant;
 
-use arb_core::config::ArbConfig;
 use arb_core::ExecutionReport;
+use arb_core::config::ArbConfig;
+use arb_core::traits::TradeExecutor;
 use arb_data::market_cache::MarketCache;
+use arb_data::price_history::PriceHistoryStore;
 use arb_risk::limits::RiskLimits;
 use arb_risk::position_tracker::PositionTracker;
-use axum::routing::{get, post};
 use axum::Router;
+use axum::routing::{delete, get, post};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::state::AppState;
 
@@ -67,16 +69,27 @@ async fn main() -> anyhow::Result<()> {
     // ── Load persisted execution history ───────────────────────
     let initial_history: Vec<ExecutionReport> = if history_path.exists() {
         match std::fs::read_to_string(&history_path) {
-            Ok(content) => {
-                let history: Vec<ExecutionReport> =
-                    serde_json::from_str(&content).unwrap_or_default();
-                tracing::info!(
-                    path = %history_path.display(),
-                    trade_count = history.len(),
-                    "Loaded execution history from disk"
-                );
-                history
-            }
+            Ok(content) => match serde_json::from_str::<Vec<ExecutionReport>>(&content) {
+                Ok(history) => {
+                    tracing::info!(
+                        path = %history_path.display(),
+                        trade_count = history.len(),
+                        "Loaded execution history from disk"
+                    );
+                    history
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        path = %history_path.display(),
+                        bytes = content.len(),
+                        "Failed to parse execution history — backing up corrupt file"
+                    );
+                    let bak = history_path.with_extension("json.bak");
+                    let _ = std::fs::rename(&history_path, &bak);
+                    Vec::new()
+                }
+            },
             Err(e) => {
                 tracing::warn!(
                     error = %e,
@@ -93,6 +106,42 @@ async fn main() -> anyhow::Result<()> {
     // Check if the file-based kill switch is already active at startup
     let kill_switch_initial = arb_risk::kill_switch::KillSwitch::new().is_active();
 
+    // ── Create executor based on configured trading mode ─────────
+    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
+    let executor: Arc<dyn TradeExecutor> = if config.is_live() {
+        tracing::info!("Starting in LIVE trading mode");
+        let key_path = config.general.key_file.as_ref().map(std::path::Path::new);
+        let live = arb_execution::executor::LiveTradeExecutor::from_key_file(
+            key_path,
+            config.slippage.prefer_post_only,
+            config.risk.order_timeout_secs,
+            fee_rate,
+        )
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Live mode requested but authentication failed: {e}. \
+                 Fix your key_file config or remove --live to use paper mode."
+            )
+        })?;
+        Arc::new(live)
+    } else {
+        tracing::info!("Starting in PAPER trading mode");
+        Arc::new(arb_execution::paper_trade::PaperTradeExecutor::with_fee_rate(fee_rate))
+    };
+
+    // ── Open price history store ─────────────────────────────────
+    let price_store = match PriceHistoryStore::open(&config_dir.join("price_history.db")) {
+        Ok(store) => {
+            tracing::info!("Price history store opened");
+            Some(Arc::new(store))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to open price history store");
+            None
+        }
+    };
+
     let state = AppState {
         market_cache: Arc::new(MarketCache::new()),
         risk_limits: Arc::new(Mutex::new(risk_limits)),
@@ -103,6 +152,9 @@ async fn main() -> anyhow::Result<()> {
         execution_history: Arc::new(RwLock::new(initial_history)),
         cached_metrics_json: Arc::new(RwLock::new("{}".to_string())),
         start_time: Instant::now(),
+        executor: executor.clone(),
+        price_store: price_store.clone(),
+        prob_estimator: Arc::new(OnceLock::new()),
     };
 
     let app = Router::new()
@@ -131,6 +183,11 @@ async fn main() -> anyhow::Result<()> {
             get(routes::config::get_config).put(routes::config::update_config),
         )
         .route("/api/order", post(routes::order::place_order))
+        .route(
+            "/api/orders",
+            get(routes::orders::list_orders).delete(routes::orders::cancel_all_orders),
+        )
+        .route("/api/orders/{id}", delete(routes::orders::cancel_order))
         .route("/api/kill", post(routes::control::kill))
         .route("/api/resume", post(routes::control::resume))
         .route(
@@ -141,6 +198,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sandbox/sweep", post(routes::sandbox::sweep))
         .route("/api/sandbox/explain", post(routes::sandbox::explain))
         .route("/api/sandbox/backtest", post(routes::sandbox::backtest))
+        .route(
+            "/api/sandbox/backtest-historical",
+            post(routes::sandbox::backtest_historical),
+        )
+        .route("/api/sandbox/impact", post(routes::optimize::impact))
+        .route("/api/sandbox/optimize", post(routes::optimize::optimize))
+        .route("/api/verify-live", post(routes::verify::verify_live))
         .route("/api/stress-test", post(routes::stress::run_stress_test))
         .route(
             "/api/simulation/status",
@@ -152,7 +216,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state.clone());
 
     // Spawn background engine that fetches live Polymarket data
-    engine_task::spawn_engine(state.clone());
+    engine_task::spawn_engine(state.clone(), executor);
 
     // ── Periodic auto-save (every 60s) ─────────────────────────
     let autosave_state = state.clone();

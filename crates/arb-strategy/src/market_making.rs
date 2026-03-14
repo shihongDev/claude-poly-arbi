@@ -80,7 +80,10 @@ impl MarketMakingDetector {
         // Inventory skew: lean away from existing position
         let net_pos = {
             let inventory = self.inventory.lock().unwrap();
-            inventory.get(&market.condition_id).copied().unwrap_or(Decimal::ZERO)
+            inventory
+                .get(&market.condition_id)
+                .copied()
+                .unwrap_or(Decimal::ZERO)
         };
 
         // If we're long, widen bid (lower buy price) and tighten ask (lower sell price)
@@ -230,8 +233,14 @@ mod tests {
             outcome_prices: vec![(bid + ask) / dec!(2), dec!(1.00) - (bid + ask) / dec!(2)],
             orderbooks: vec![OrderbookSnapshot {
                 token_id: "yes".into(),
-                bids: vec![OrderbookLevel { price: bid, size: dec!(1000) }],
-                asks: vec![OrderbookLevel { price: ask, size: dec!(1000) }],
+                bids: vec![OrderbookLevel {
+                    price: bid,
+                    size: dec!(1000),
+                }],
+                asks: vec![OrderbookLevel {
+                    price: ask,
+                    size: dec!(1000),
+                }],
                 timestamp: Utc::now(),
             }],
             volume_24hr: Some(volume),

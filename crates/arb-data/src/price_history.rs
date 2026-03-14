@@ -5,13 +5,13 @@
 //! a configurable retention window (default 30 days).
 
 use chrono::{DateTime, TimeZone, Utc};
-use rust_decimal::Decimal;
 use rusqlite::{Connection, params};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use arb_core::MarketState;
+use arb_core::{MarketState, OrderbookLevel};
 
 /// A single price observation for one token in a market.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +22,16 @@ pub struct PriceTick {
     pub best_bid: Option<Decimal>,
     pub best_ask: Option<Decimal>,
     pub volume_24h: Option<Decimal>,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// A recorded orderbook snapshot for one token in a market.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderbookSnapshotRecord {
+    pub condition_id: String,
+    pub token_id: String,
+    pub bids: Vec<OrderbookLevel>,
+    pub asks: Vec<OrderbookLevel>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -90,6 +100,16 @@ impl PriceHistoryStore {
             );
             CREATE INDEX IF NOT EXISTS idx_ticks_cid_ts ON price_ticks(condition_id, ts);",
         )?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+                condition_id TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                bids_json TEXT NOT NULL,
+                asks_json TEXT NOT NULL,
+                ts INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ob_cid_ts ON orderbook_snapshots(condition_id, ts);",
+        )?;
         Ok(())
     }
 
@@ -131,6 +151,49 @@ impl PriceHistoryStore {
 
     /// Record multiple markets in a single transaction (for engine cycle bulk writes).
     pub fn record_markets(&self, markets: &[MarketState]) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now_ms = Utc::now().timestamp_millis();
+
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO price_ticks (condition_id, token_id, price, best_bid, best_ask, volume_24h, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+
+            for market in markets {
+                for (i, token_id) in market.token_ids.iter().enumerate() {
+                    let price = market
+                        .outcome_prices
+                        .get(i)
+                        .copied()
+                        .unwrap_or(Decimal::ZERO);
+
+                    stmt.execute(params![
+                        market.condition_id,
+                        token_id,
+                        decimal_to_f64(&price),
+                        opt_decimal_to_f64(&market.best_bid),
+                        opt_decimal_to_f64(&market.best_ask),
+                        opt_decimal_to_f64(&market.volume_24hr),
+                        now_ms,
+                    ])?;
+                }
+            }
+        }
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    /// Record price ticks from Arc<MarketState> references without cloning.
+    ///
+    /// Avoids the expensive deep clone of orderbooks that `record_markets` requires
+    /// when called with owned `MarketState` values.
+    pub fn record_markets_arc(
+        &self,
+        markets: &[Arc<MarketState>],
+    ) -> anyhow::Result<()> {
         let conn = self.conn.lock().unwrap();
         let now_ms = Utc::now().timestamp_millis();
 
@@ -278,10 +341,7 @@ impl PriceHistoryStore {
         }
 
         // Compute log returns: ln(price[i+1] / price[i])
-        let log_returns: Vec<f64> = prices
-            .windows(2)
-            .map(|w| (w[1] / w[0]).ln())
-            .collect();
+        let log_returns: Vec<f64> = prices.windows(2).map(|w| (w[1] / w[0]).ln()).collect();
 
         if log_returns.is_empty() {
             return None;
@@ -298,6 +358,47 @@ impl PriceHistoryStore {
         Some(std_dev)
     }
 
+    /// Get all price ticks in a time range across all condition_ids.
+    ///
+    /// Unlike `get_history`, this does not filter by condition_id and returns
+    /// ticks for every market recorded in the store. Useful for historical
+    /// backtest endpoints that need to reconstruct market states across all markets.
+    pub fn get_all_ticks_in_range(
+        &self,
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    ) -> anyhow::Result<Vec<PriceTick>> {
+        let conn = self.conn.lock().unwrap();
+        let since_ms = since.timestamp_millis();
+        let until_ms = until.timestamp_millis();
+
+        let mut stmt = conn.prepare(
+            "SELECT condition_id, token_id, price, best_bid, best_ask, volume_24h, ts
+             FROM price_ticks
+             WHERE ts >= ?1 AND ts <= ?2
+             ORDER BY ts ASC",
+        )?;
+
+        let rows = stmt.query_map(params![since_ms, until_ms], |row| {
+            let ts_ms: i64 = row.get(6)?;
+            Ok(PriceTick {
+                condition_id: row.get(0)?,
+                token_id: row.get(1)?,
+                price: f64_to_decimal(row.get(2)?),
+                best_bid: opt_f64_to_decimal(row.get(3)?),
+                best_ask: opt_f64_to_decimal(row.get(4)?),
+                volume_24h: opt_f64_to_decimal(row.get(5)?),
+                timestamp: Utc.timestamp_millis_opt(ts_ms).single().unwrap_or_default(),
+            })
+        })?;
+
+        let mut ticks = Vec::new();
+        for row in rows {
+            ticks.push(row?);
+        }
+        Ok(ticks)
+    }
+
     /// Delete ticks older than `retention_days`.
     ///
     /// Returns the number of rows deleted.
@@ -306,10 +407,7 @@ impl PriceHistoryStore {
         let cutoff = Utc::now() - chrono::Duration::days(i64::from(retention_days));
         let cutoff_ms = cutoff.timestamp_millis();
 
-        let deleted = conn.execute(
-            "DELETE FROM price_ticks WHERE ts < ?1",
-            params![cutoff_ms],
-        )?;
+        let deleted = conn.execute("DELETE FROM price_ticks WHERE ts < ?1", params![cutoff_ms])?;
 
         Ok(deleted)
     }
@@ -317,8 +415,139 @@ impl PriceHistoryStore {
     /// Count total ticks in the database.
     pub fn tick_count(&self) -> anyhow::Result<usize> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM price_ticks", [], |row| row.get(0))?;
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM price_ticks", [], |row| row.get(0))?;
         Ok(count as usize)
+    }
+
+    /// Record orderbook snapshots from a `MarketState`.
+    ///
+    /// For each orderbook in `market.orderbooks`, serializes the top 10 bid/ask
+    /// levels as JSON and inserts a row. Uses a transaction for efficiency.
+    pub fn record_orderbook_snapshot(&self, market: &MarketState) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now_ms = Utc::now().timestamp_millis();
+
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO orderbook_snapshots (condition_id, token_id, bids_json, asks_json, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+
+            for ob in &market.orderbooks {
+                let top_bids: Vec<&OrderbookLevel> = ob.bids.iter().take(10).collect();
+                let top_asks: Vec<&OrderbookLevel> = ob.asks.iter().take(10).collect();
+
+                let bids_json = serde_json::to_string(&top_bids)?;
+                let asks_json = serde_json::to_string(&top_asks)?;
+
+                stmt.execute(params![
+                    market.condition_id,
+                    ob.token_id,
+                    bids_json,
+                    asks_json,
+                    now_ms,
+                ])?;
+            }
+        }
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    /// Record orderbook snapshots for multiple markets in a single transaction.
+    ///
+    /// Much more efficient than calling `record_orderbook_snapshot` per market
+    /// because it acquires the mutex lock and opens a transaction only once.
+    pub fn record_orderbook_snapshots_batch(
+        &self,
+        markets: &[&MarketState],
+    ) -> anyhow::Result<()> {
+        if markets.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        let now_ms = Utc::now().timestamp_millis();
+
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO orderbook_snapshots (condition_id, token_id, bids_json, asks_json, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+
+            for market in markets {
+                for ob in &market.orderbooks {
+                    if ob.bids.is_empty() && ob.asks.is_empty() {
+                        continue;
+                    }
+                    let top_bids: Vec<&OrderbookLevel> = ob.bids.iter().take(10).collect();
+                    let top_asks: Vec<&OrderbookLevel> = ob.asks.iter().take(10).collect();
+
+                    let bids_json = serde_json::to_string(&top_bids)?;
+                    let asks_json = serde_json::to_string(&top_asks)?;
+
+                    stmt.execute(params![
+                        market.condition_id,
+                        ob.token_id,
+                        bids_json,
+                        asks_json,
+                        now_ms,
+                    ])?;
+                }
+            }
+        }
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    /// Get orderbook snapshots for a `condition_id` between two timestamps.
+    pub fn get_orderbook_snapshots(
+        &self,
+        condition_id: &str,
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    ) -> anyhow::Result<Vec<OrderbookSnapshotRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let since_ms = since.timestamp_millis();
+        let until_ms = until.timestamp_millis();
+
+        let mut stmt = conn.prepare(
+            "SELECT condition_id, token_id, bids_json, asks_json, ts
+             FROM orderbook_snapshots
+             WHERE condition_id = ?1 AND ts >= ?2 AND ts <= ?3
+             ORDER BY ts ASC",
+        )?;
+
+        let rows = stmt.query_map(params![condition_id, since_ms, until_ms], |row| {
+            let ts_ms: i64 = row.get(4)?;
+            let bids_json: String = row.get(2)?;
+            let asks_json: String = row.get(3)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                bids_json,
+                asks_json,
+                ts_ms,
+            ))
+        })?;
+
+        let mut snapshots = Vec::new();
+        for row in rows {
+            let (cid, tid, bids_json, asks_json, ts_ms) = row?;
+            let bids: Vec<OrderbookLevel> = serde_json::from_str(&bids_json)?;
+            let asks: Vec<OrderbookLevel> = serde_json::from_str(&asks_json)?;
+            snapshots.push(OrderbookSnapshotRecord {
+                condition_id: cid,
+                token_id: tid,
+                bids,
+                asks,
+                timestamp: Utc.timestamp_millis_opt(ts_ms).single().unwrap_or_default(),
+            });
+        }
+        Ok(snapshots)
     }
 }
 
@@ -453,14 +682,9 @@ mod tests {
             let base_ts = Utc::now().timestamp_millis();
 
             // Insert ticks at known offsets: -3h, -2h, -1h, now
-            for (i, offset_ms) in [
-                -3 * 3600 * 1000i64,
-                -2 * 3600 * 1000,
-                -1 * 3600 * 1000,
-                0,
-            ]
-            .iter()
-            .enumerate()
+            for (i, offset_ms) in [-3 * 3600 * 1000i64, -2 * 3600 * 1000, -1 * 3600 * 1000, 0]
+                .iter()
+                .enumerate()
             {
                 conn.execute(
                     "INSERT INTO price_ticks (condition_id, token_id, price, best_bid, best_ask, volume_24h, ts)
@@ -600,12 +824,13 @@ mod tests {
         let ticks = store.get_recent("cid_unknown", 10).unwrap();
         assert!(ticks.is_empty());
 
-        let history = store.get_history(
-            "cid_unknown",
-            Utc::now() - chrono::Duration::hours(1),
-            Utc::now(),
-        )
-        .unwrap();
+        let history = store
+            .get_history(
+                "cid_unknown",
+                Utc::now() - chrono::Duration::hours(1),
+                Utc::now(),
+            )
+            .unwrap();
         assert!(history.is_empty());
     }
 
@@ -738,9 +963,156 @@ mod tests {
 
         // Query volatility for a condition_id with no data
         let vol = store.realized_volatility("cid_nonexistent", 30);
-        assert!(
-            vol.is_none(),
-            "Unknown condition_id should return None"
-        );
+        assert!(vol.is_none(), "Unknown condition_id should return None");
+    }
+
+    // ---------------------------------------------------------------
+    // Orderbook snapshot tests
+    // ---------------------------------------------------------------
+
+    /// Helper: create a MarketState with orderbook data for snapshot tests.
+    fn make_market_with_orderbooks(condition_id: &str) -> MarketState {
+        use arb_core::{OrderbookLevel, OrderbookSnapshot};
+
+        let bids = vec![
+            OrderbookLevel {
+                price: dec!(0.58),
+                size: dec!(100),
+            },
+            OrderbookLevel {
+                price: dec!(0.57),
+                size: dec!(200),
+            },
+            OrderbookLevel {
+                price: dec!(0.56),
+                size: dec!(300),
+            },
+        ];
+        let asks = vec![
+            OrderbookLevel {
+                price: dec!(0.62),
+                size: dec!(150),
+            },
+            OrderbookLevel {
+                price: dec!(0.63),
+                size: dec!(250),
+            },
+            OrderbookLevel {
+                price: dec!(0.64),
+                size: dec!(350),
+            },
+        ];
+
+        let ob = OrderbookSnapshot {
+            token_id: "tok_yes_1".to_string(),
+            bids,
+            asks,
+            timestamp: Utc::now(),
+        };
+
+        MarketState {
+            condition_id: condition_id.to_string(),
+            question: "Test market?".to_string(),
+            outcomes: vec!["Yes".to_string(), "No".to_string()],
+            token_ids: vec!["tok_yes_1".to_string(), "tok_no_1".to_string()],
+            outcome_prices: vec![dec!(0.60), dec!(0.40)],
+            orderbooks: vec![ob],
+            volume_24hr: Some(dec!(50000)),
+            liquidity: Some(dec!(100000)),
+            active: true,
+            neg_risk: false,
+            best_bid: Some(dec!(0.58)),
+            best_ask: Some(dec!(0.62)),
+            spread: Some(dec!(0.04)),
+            last_trade_price: Some(dec!(0.60)),
+            description: None,
+            end_date_iso: None,
+            slug: None,
+            one_day_price_change: None,
+            event_id: None,
+            last_updated_gen: 0,
+        }
+    }
+
+    #[test]
+    fn test_record_and_retrieve_orderbook_snapshot() {
+        let store = PriceHistoryStore::open_in_memory().unwrap();
+        let market = make_market_with_orderbooks("cid_ob_1");
+
+        store.record_orderbook_snapshot(&market).unwrap();
+
+        let since = Utc::now() - chrono::Duration::minutes(1);
+        let until = Utc::now() + chrono::Duration::minutes(1);
+        let snapshots = store
+            .get_orderbook_snapshots("cid_ob_1", since, until)
+            .unwrap();
+
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].condition_id, "cid_ob_1");
+        assert_eq!(snapshots[0].token_id, "tok_yes_1");
+        assert_eq!(snapshots[0].bids.len(), 3);
+        assert_eq!(snapshots[0].asks.len(), 3);
+        assert_eq!(snapshots[0].bids[0].price, dec!(0.58));
+        assert_eq!(snapshots[0].asks[0].price, dec!(0.62));
+    }
+
+    #[test]
+    fn test_orderbook_snapshot_empty_market() {
+        let store = PriceHistoryStore::open_in_memory().unwrap();
+
+        // Market with no orderbooks
+        let market = make_market("cid_no_ob", dec!(0.60), dec!(0.40));
+        store.record_orderbook_snapshot(&market).unwrap();
+
+        let since = Utc::now() - chrono::Duration::minutes(1);
+        let until = Utc::now() + chrono::Duration::minutes(1);
+        let snapshots = store
+            .get_orderbook_snapshots("cid_no_ob", since, until)
+            .unwrap();
+        assert!(snapshots.is_empty());
+    }
+
+    #[test]
+    fn test_orderbook_snapshot_top_10_truncation() {
+        use arb_core::{OrderbookLevel, OrderbookSnapshot};
+
+        let store = PriceHistoryStore::open_in_memory().unwrap();
+
+        // Create a market with 15 bid levels and 15 ask levels
+        let bids: Vec<OrderbookLevel> = (0..15)
+            .map(|i| OrderbookLevel {
+                price: Decimal::from(58) - Decimal::from(i),
+                size: dec!(100),
+            })
+            .collect();
+        let asks: Vec<OrderbookLevel> = (0..15)
+            .map(|i| OrderbookLevel {
+                price: Decimal::from(62) + Decimal::from(i),
+                size: dec!(100),
+            })
+            .collect();
+
+        let ob = OrderbookSnapshot {
+            token_id: "tok_deep".to_string(),
+            bids,
+            asks,
+            timestamp: Utc::now(),
+        };
+
+        let mut market = make_market("cid_deep", dec!(0.60), dec!(0.40));
+        market.orderbooks = vec![ob];
+
+        store.record_orderbook_snapshot(&market).unwrap();
+
+        let since = Utc::now() - chrono::Duration::minutes(1);
+        let until = Utc::now() + chrono::Duration::minutes(1);
+        let snapshots = store
+            .get_orderbook_snapshots("cid_deep", since, until)
+            .unwrap();
+
+        assert_eq!(snapshots.len(), 1);
+        // Should be truncated to top 10
+        assert_eq!(snapshots[0].bids.len(), 10);
+        assert_eq!(snapshots[0].asks.len(), 10);
     }
 }

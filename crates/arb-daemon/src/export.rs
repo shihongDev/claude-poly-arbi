@@ -43,8 +43,8 @@ pub struct MarketSummaryRow {
 
 /// Serialize a full `ScanReport` to pretty-printed JSON and write it to `path`.
 pub fn export_json(report: &ScanReport, path: &str) -> anyhow::Result<()> {
-    let json = serde_json::to_string_pretty(report)
-        .context("failed to serialize ScanReport to JSON")?;
+    let json =
+        serde_json::to_string_pretty(report).context("failed to serialize ScanReport to JSON")?;
     fs::write(path, json).with_context(|| format!("failed to write JSON to {path}"))?;
     Ok(())
 }

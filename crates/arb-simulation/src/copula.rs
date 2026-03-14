@@ -27,10 +27,14 @@ impl TCopula {
     pub fn new(correlation_matrix: DMatrix<f64>, df: f64) -> Result<Self> {
         let dim = correlation_matrix.nrows();
         if correlation_matrix.ncols() != dim {
-            return Err(ArbError::Simulation("Correlation matrix must be square".into()));
+            return Err(ArbError::Simulation(
+                "Correlation matrix must be square".into(),
+            ));
         }
         if df <= 2.0 {
-            return Err(ArbError::Simulation("Degrees of freedom must be > 2".into()));
+            return Err(ArbError::Simulation(
+                "Degrees of freedom must be > 2".into(),
+            ));
         }
 
         // Cholesky decomposition: R = L * L^T

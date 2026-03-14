@@ -58,9 +58,9 @@ pub fn run_stress_test(
         StressScenario::LiquidityShock {
             depth_reduction_pct,
         } => stress_liquidity_shock(positions, *depth_reduction_pct, current_var),
-        StressScenario::CorrelationSpike {
-            target_correlation,
-        } => stress_correlation_spike(positions, *target_correlation, current_var),
+        StressScenario::CorrelationSpike { target_correlation } => {
+            stress_correlation_spike(positions, *target_correlation, current_var)
+        }
         StressScenario::FlashCrash { adverse_move_pct } => {
             stress_flash_crash(positions, *adverse_move_pct, current_var)
         }
@@ -339,10 +339,7 @@ mod tests {
             result.portfolio_impact < Decimal::ZERO,
             "Liquidity shock should cause negative impact"
         );
-        assert!(
-            result.max_loss > Decimal::ZERO,
-            "Should have max loss > 0"
-        );
+        assert!(result.max_loss > Decimal::ZERO, "Should have max loss > 0");
         assert!(
             result.var_after > result.var_before,
             "VaR should worsen after liquidity shock"

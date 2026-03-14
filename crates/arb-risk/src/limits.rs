@@ -1,9 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use arb_core::{
-    ArbType, ExecutionReport, Opportunity, RiskDecision,
-    config::RiskConfig,
-    error::Result,
+    ArbType, ExecutionReport, Opportunity, RiskDecision, config::RiskConfig, error::Result,
     traits::RiskManager,
 };
 use chrono::{DateTime, Utc};

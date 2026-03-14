@@ -1,11 +1,11 @@
+use arb_simulation::monte_carlo::{MonteCarloParams, run_monte_carlo};
+use arb_simulation::particle_filter::ParticleFilter;
 use axum::{
     Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use arb_simulation::monte_carlo::{MonteCarloParams, run_monte_carlo};
-use arb_simulation::particle_filter::ParticleFilter;
 use serde::Deserialize;
 
 use crate::state::AppState;
@@ -45,7 +45,9 @@ pub async fn run_simulation(
 
     let config = state.config.read().unwrap();
     let n_paths = req.num_paths.unwrap_or(config.simulation.monte_carlo_paths);
-    let n_particles = req.particle_count.unwrap_or(config.simulation.particle_count);
+    let n_particles = req
+        .particle_count
+        .unwrap_or(config.simulation.particle_count);
     drop(config);
 
     let mc_params = MonteCarloParams {

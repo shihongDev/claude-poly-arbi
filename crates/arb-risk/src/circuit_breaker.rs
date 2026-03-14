@@ -256,17 +256,11 @@ mod tests {
         let mut cb = default_breaker();
         // Set loss that would trigger
         cb.record_pnl(dec!(-1500));
-        assert!(
-            cb.check().is_some(),
-            "Should trigger before reset"
-        );
+        assert!(cb.check().is_some(), "Should trigger before reset");
 
         // Reset daily PnL
         cb.reset_daily();
-        assert!(
-            cb.check().is_none(),
-            "Should not trigger after daily reset"
-        );
+        assert!(cb.check().is_none(), "Should not trigger after daily reset");
     }
 
     #[test]

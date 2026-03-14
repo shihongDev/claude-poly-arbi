@@ -67,10 +67,7 @@ pub fn adaptive_monte_carlo(
     let p_hat = total_hits as f64 / total_paths as f64;
     let se = (p_hat * (1.0 - p_hat) / total_paths as f64).sqrt();
     let z95 = 1.96;
-    let ci = (
-        (p_hat - z95 * se).max(0.0),
-        (p_hat + z95 * se).min(1.0),
-    );
+    let ci = ((p_hat - z95 * se).max(0.0), (p_hat + z95 * se).min(1.0));
 
     let result = MonteCarloResult {
         probability: p_hat,
@@ -100,11 +97,7 @@ pub fn adaptive_monte_carlo(
 /// - n = number of samples per chain
 ///
 /// R-hat near 1.0 indicates convergence across chains.
-pub fn gelman_rubin(
-    params: &MonteCarloParams,
-    n_chains: usize,
-    paths_per_chain: usize,
-) -> f64 {
+pub fn gelman_rubin(params: &MonteCarloParams, n_chains: usize, paths_per_chain: usize) -> f64 {
     let chain_means = compute_chain_means(params, n_chains, paths_per_chain);
     let chain_variances = compute_chain_variances(params, n_chains, paths_per_chain, &chain_means);
 
@@ -248,10 +241,7 @@ mod tests {
         let (_, diag) = adaptive_monte_carlo(&params, 0.001, 100_000, 5_000);
 
         // SE should generally decrease across batches
-        assert!(
-            diag.running_se.len() >= 2,
-            "Should have at least 2 batches"
-        );
+        assert!(diag.running_se.len() >= 2, "Should have at least 2 batches");
         let first_se = diag.running_se[0];
         let last_se = *diag.running_se.last().unwrap();
         assert!(

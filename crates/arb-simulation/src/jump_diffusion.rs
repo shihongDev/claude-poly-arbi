@@ -60,9 +60,8 @@ pub fn run_jump_diffusion(params: &JumpDiffusionParams) -> JumpDiffusionResult {
     let k = (params.jump_mean + 0.5 * params.jump_vol.powi(2)).exp() - 1.0;
 
     // Diffusion terms
-    let drift_term =
-        (params.drift - params.jump_intensity * k - 0.5 * params.volatility.powi(2))
-            * params.time_horizon;
+    let drift_term = (params.drift - params.jump_intensity * k - 0.5 * params.volatility.powi(2))
+        * params.time_horizon;
     let vol_term = params.volatility * params.time_horizon.sqrt();
 
     // Poisson parameter for number of jumps over [0, T]
@@ -119,10 +118,7 @@ pub fn run_jump_diffusion(params: &JumpDiffusionParams) -> JumpDiffusionResult {
     let p_hat = total_hits as f64 / params.n_paths as f64;
     let se = (p_hat * (1.0 - p_hat) / params.n_paths as f64).sqrt();
     let z95 = 1.96;
-    let ci = (
-        (p_hat - z95 * se).max(0.0),
-        (p_hat + z95 * se).min(1.0),
-    );
+    let ci = ((p_hat - z95 * se).max(0.0), (p_hat + z95 * se).min(1.0));
 
     let avg_jumps = total_jumps as f64 / params.n_paths as f64;
 

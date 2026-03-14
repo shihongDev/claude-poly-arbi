@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use arb_core::{ExecutionReport, Opportunity};
 use arb_core::config::AlertsConfig;
+use arb_core::{ExecutionReport, Opportunity};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
@@ -39,9 +39,8 @@ impl AlertManager {
 
     /// Periodically check Brier score calibration.
     pub fn check_calibration(&mut self, brier_score: f64) {
-        let interval = std::time::Duration::from_secs(
-            self.config.calibration_check_interval_mins * 60,
-        );
+        let interval =
+            std::time::Duration::from_secs(self.config.calibration_check_interval_mins * 60);
 
         if self.last_calibration_check.elapsed() >= interval {
             self.last_calibration_check = Instant::now();
@@ -333,9 +332,7 @@ mod tests {
     fn test_random_predictions_half_confidence() {
         // Random predictions: always predict 0.5, outcomes are 50/50
         // Brier = mean((0.5 - actual)^2) = mean(0.25) = 0.25
-        let pairs: Vec<(f64, bool)> = (0..100)
-            .map(|i| (0.5, i % 2 == 0))
-            .collect();
+        let pairs: Vec<(f64, bool)> = (0..100).map(|i| (0.5, i % 2 == 0)).collect();
 
         let model = make_model_with_predictions(&pairs);
 
@@ -446,9 +443,15 @@ mod tests {
         let now = Instant::now();
 
         model.record(1.5, true, now); // clamped to 1.0
-        assert!(model.brier_score_30m < 0.01, "Clamped to 1.0, actual=true → Brier ~0");
+        assert!(
+            model.brier_score_30m < 0.01,
+            "Clamped to 1.0, actual=true → Brier ~0"
+        );
 
         model.record(-0.5, false, now + Duration::from_millis(1)); // clamped to 0.0
-        assert!(model.brier_score_30m < 0.01, "Clamped to 0.0, actual=false → Brier ~0");
+        assert!(
+            model.brier_score_30m < 0.01,
+            "Clamped to 0.0, actual=false → Brier ~0"
+        );
     }
 }

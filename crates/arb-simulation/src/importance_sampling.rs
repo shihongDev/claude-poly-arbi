@@ -50,8 +50,8 @@ impl ImportanceSampler {
 
         let tilted_dist = Normal::new(tilted_mean, 1.0).unwrap();
 
-        let drift_term = (self.params.drift - 0.5 * self.params.volatility.powi(2))
-            * self.params.time_horizon;
+        let drift_term =
+            (self.params.drift - 0.5 * self.params.volatility.powi(2)) * self.params.time_horizon;
         let vol_term = self.params.volatility * self.params.time_horizon.sqrt();
 
         let mut weighted_payoffs = Vec::with_capacity(self.params.n_paths);
@@ -75,8 +75,11 @@ impl ImportanceSampler {
         let p_clamped = p_hat.clamp(0.0, 1.0);
 
         // Variance of the weighted estimator
-        let variance: f64 =
-            weighted_payoffs.iter().map(|&w| (w - p_hat).powi(2)).sum::<f64>() / (n - 1.0);
+        let variance: f64 = weighted_payoffs
+            .iter()
+            .map(|&w| (w - p_hat).powi(2))
+            .sum::<f64>()
+            / (n - 1.0);
         let se = (variance / n).sqrt();
 
         MonteCarloResult {

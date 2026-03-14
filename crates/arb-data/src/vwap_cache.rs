@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use arb_core::{
-    OrderChunk, OrderbookSnapshot, Side, VwapEstimate,
-    error::Result,
-    traits::SlippageEstimator,
+    OrderChunk, OrderbookSnapshot, Side, VwapEstimate, error::Result, traits::SlippageEstimator,
 };
 use rust_decimal::Decimal;
 
@@ -60,10 +58,7 @@ impl<S: SlippageEstimator> SlippageEstimator for CachedSlippageEstimator<S> {
 
         // Cache miss — compute and store
         let result = self.inner.estimate_vwap(book, side, size)?;
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(key, result.clone());
+        self.cache.lock().unwrap().insert(key, result.clone());
         Ok(result)
     }
 
@@ -75,6 +70,7 @@ impl<S: SlippageEstimator> SlippageEstimator for CachedSlippageEstimator<S> {
         max_slippage_bps: Decimal,
     ) -> Result<Vec<OrderChunk>> {
         // split_order is called rarely — no caching needed
-        self.inner.split_order(book, side, total_size, max_slippage_bps)
+        self.inner
+            .split_order(book, side, total_size, max_slippage_bps)
     }
 }

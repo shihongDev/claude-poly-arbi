@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use arb_core::{
-    ExecutionReport, FillStatus, LegReport, Opportunity, Position, Side, TradingMode,
-    error::Result,
-    traits::TradeExecutor,
+    ExecutionReport, FillStatus, LegReport, OpenOrder, Opportunity, Position, Side, TradingMode,
+    error::Result, traits::TradeExecutor,
 };
+use arb_data::impact::MarketImpactEstimator;
 use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
@@ -21,10 +21,16 @@ use uuid::Uuid;
 pub struct PaperTradeExecutor {
     positions: Mutex<HashMap<String, Position>>,
     trade_log: Mutex<Vec<ExecutionReport>>,
+    placed_orders: Mutex<HashMap<String, OpenOrder>>,
     /// Multiply VWAP slippage by this factor (e.g., 1.2 = assume 20% worse fills than estimated).
     pessimism_factor: Decimal,
     /// Fee rate applied to each leg's notional (maker=0%, taker=2%).
     fee_rate: Decimal,
+    /// Optional market impact estimator for more realistic fill simulation.
+    /// When orderbook context is available, this replaces the static pessimism factor
+    /// with a model-based impact estimate.
+    #[allow(dead_code)]
+    impact_estimator: Option<Arc<MarketImpactEstimator>>,
 }
 
 /// Default pessimism factor: fills are assumed 10% worse than VWAP estimate.
@@ -35,8 +41,10 @@ impl PaperTradeExecutor {
         Self {
             positions: Mutex::new(HashMap::new()),
             trade_log: Mutex::new(Vec::new()),
+            placed_orders: Mutex::new(HashMap::new()),
             pessimism_factor,
             fee_rate: dec!(0.02),
+            impact_estimator: None,
         }
     }
 
@@ -45,14 +53,26 @@ impl PaperTradeExecutor {
         Self {
             positions: Mutex::new(HashMap::new()),
             trade_log: Mutex::new(Vec::new()),
+            placed_orders: Mutex::new(HashMap::new()),
             pessimism_factor: DEFAULT_PESSIMISM,
             fee_rate,
+            impact_estimator: None,
         }
     }
 
     /// Default with 10% pessimism and 2% taker fee (backward-compatible).
     pub fn default_pessimism() -> Self {
         Self::new(DEFAULT_PESSIMISM)
+    }
+
+    /// Attach a market impact estimator (builder pattern).
+    ///
+    /// When orderbook context becomes available in the execution path, the
+    /// estimator will replace the static pessimism factor with model-based
+    /// impact estimates for more realistic fill simulation.
+    pub fn with_impact_estimator(mut self, estimator: Arc<MarketImpactEstimator>) -> Self {
+        self.impact_estimator = Some(estimator);
+        self
     }
 
     /// Get all current virtual positions.
@@ -91,7 +111,14 @@ impl PaperTradeExecutor {
         }
     }
 
-    fn update_position(&self, token_id: &str, condition_id: &str, side: Side, size: Decimal, price: Decimal) {
+    fn update_position(
+        &self,
+        token_id: &str,
+        condition_id: &str,
+        side: Side,
+        size: Decimal,
+        price: Decimal,
+    ) {
         let mut positions = self.positions.lock().unwrap();
         let pos = positions
             .entry(token_id.to_string())
@@ -141,8 +168,10 @@ impl TradeExecutor for PaperTradeExecutor {
 
             let fee = leg.target_size * fill_price * self.fee_rate;
 
+            let order_id = Uuid::new_v4().to_string();
+
             leg_reports.push(LegReport {
-                order_id: Uuid::new_v4().to_string(),
+                order_id,
                 token_id: leg.token_id.clone(),
                 condition_id: condition_id.clone(),
                 side: leg.side,
@@ -152,11 +181,21 @@ impl TradeExecutor for PaperTradeExecutor {
                 status: FillStatus::FullyFilled,
             });
 
+            // Note: paper trades fill immediately (FullyFilled), so they are
+            // NOT tracked as open orders. Only unfilled/partial orders would be
+            // tracked here in a more sophisticated simulation.
+
             total_slippage += slippage * leg.target_size;
             total_fees += fee;
 
             // Update virtual positions
-            self.update_position(&leg.token_id, &condition_id, leg.side, leg.target_size, fill_price);
+            self.update_position(
+                &leg.token_id,
+                &condition_id,
+                leg.side,
+                leg.target_size,
+                fill_price,
+            );
         }
 
         // Realized edge = gross edge - actual slippage - fees
@@ -188,9 +227,39 @@ impl TradeExecutor for PaperTradeExecutor {
         Ok(report)
     }
 
-    async fn cancel_all(&self) -> Result<()> {
-        info!(mode = "paper", "Cancel all (no-op in paper mode)");
+    async fn cancel_order(&self, order_id: &str) -> Result<()> {
+        self.placed_orders.lock().unwrap().remove(order_id);
+        info!(mode = "paper", order_id, "Paper order cancelled");
         Ok(())
+    }
+
+    async fn cancel_all(&self) -> Result<()> {
+        let count = {
+            let mut orders = self.placed_orders.lock().unwrap();
+            let n = orders.len();
+            orders.clear();
+            n
+        };
+        info!(mode = "paper", count, "All paper orders cancelled");
+        Ok(())
+    }
+
+    async fn open_orders(&self) -> Result<Vec<OpenOrder>> {
+        Ok(self
+            .placed_orders
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect())
+    }
+
+    async fn execute_batch(&self, opps: &[Opportunity]) -> Result<Vec<ExecutionReport>> {
+        let mut reports = Vec::with_capacity(opps.len());
+        for opp in opps {
+            reports.push(self.execute_opportunity(opp).await?);
+        }
+        Ok(reports)
     }
 
     fn mode(&self) -> TradingMode {

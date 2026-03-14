@@ -3,17 +3,22 @@ use arb_core::types::ExecutionReport;
 use crate::state::AppState;
 
 pub fn append_history(state: &AppState, report: &ExecutionReport) {
-    if let Ok(mut history) = state.execution_history.write() {
-        history.insert(0, report.clone());
-        history.truncate(500);
+    match state.execution_history.write() {
+        Ok(mut history) => {
+            history.insert(0, report.clone());
+            history.truncate(500);
+        }
+        Err(e) => {
+            tracing::error!(
+                opportunity_id = %report.opportunity_id,
+                error = %e,
+                "Failed to record execution report — trade record lost"
+            );
+        }
     }
 }
 
-pub fn broadcast_event<T: serde::Serialize>(
-    state: &AppState,
-    event_type: &str,
-    data: &T,
-) -> bool {
+pub fn broadcast_event<T: serde::Serialize>(state: &AppState, event_type: &str, data: &T) -> bool {
     let event = serde_json::json!({
         "type": event_type,
         "data": data

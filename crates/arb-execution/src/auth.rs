@@ -20,8 +20,9 @@ const DEFAULT_KEY_FILE: &str = "secrets/key.txt";
 ///
 /// The file should contain only the private key, one line.
 pub fn read_private_key(path: &Path) -> Result<String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| ArbError::Config(format!("Failed to read key file {}: {e}", path.display())))?;
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        ArbError::Config(format!("Failed to read key file {}: {e}", path.display()))
+    })?;
 
     let key = content.trim().to_string();
 
@@ -110,7 +111,11 @@ mod tests {
         let path = dir.join("key.txt");
 
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80").unwrap();
+        writeln!(
+            f,
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+        )
+        .unwrap();
 
         let key = read_private_key(&path).unwrap();
         assert!(key.starts_with("0x"));
@@ -126,7 +131,11 @@ mod tests {
         let path = dir.join("key.txt");
 
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80").unwrap();
+        writeln!(
+            f,
+            "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+        )
+        .unwrap();
 
         let key = read_private_key(&path).unwrap();
         assert_eq!(key.len(), 64);

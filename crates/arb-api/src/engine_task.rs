@@ -7,32 +7,32 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arb_core::config::ArbConfig;
-use arb_core::traits::{ArbDetector, MarketDataSource, ProbabilityEstimator, RiskManager, SlippageEstimator, TradeExecutor};
+use arb_core::traits::{
+    ArbDetector, MarketDataSource, ProbabilityEstimator, RiskManager, SlippageEstimator,
+    TradeExecutor,
+};
 use arb_core::types::{ArbType, RiskDecision};
-use arb_execution::executor::LiveTradeExecutor;
-use arb_execution::paper_trade::PaperTradeExecutor;
 use arb_data::correlation::CorrelationGraph;
 use arb_data::local_book::OrderBookStore;
 use arb_data::orderbook::OrderbookProcessor;
 use arb_data::poller::{
     ConcurrentFetchConfig, MarketPoller, SdkMarketDataSource, classify_markets,
 };
-use arb_data::price_history::PriceHistoryStore;
 use arb_data::vwap_cache::CachedSlippageEstimator;
 use arb_data::ws_feed::{BookUpdate, WsFeedClient};
-use tokio::sync::mpsc;
 use arb_simulation::estimator::EnsembleEstimator;
 use arb_strategy::cross_market::CrossMarketDetector;
 use arb_strategy::edge::EdgeCalculator;
 use arb_strategy::intra_market::IntraMarketDetector;
-use arb_strategy::multi_outcome::MultiOutcomeDetector;
-use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
 use arb_strategy::liquidity_sniping::LiquiditySnipingDetector;
 use arb_strategy::market_making::MarketMakingDetector;
+use arb_strategy::multi_outcome::MultiOutcomeDetector;
 use arb_strategy::prob_model::ProbModelDetector;
+use arb_strategy::resolution_sniping::ResolutionSnipingDetector;
 use arb_strategy::stale_market::StaleMarketDetector;
 use arb_strategy::volume_spike::VolumeSpikeDetector;
 use rust_decimal::Decimal;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::routes::helpers::{append_history, broadcast_event};
@@ -46,24 +46,24 @@ const MAX_ORDERBOOK_TOKENS: usize = 400;
 const MAX_WS_BULK_MARKETS: usize = 500;
 
 /// Spawn the background engine loop. Shares state with the API handlers.
-pub fn spawn_engine(state: AppState) {
+pub fn spawn_engine(state: AppState, executor: Arc<dyn TradeExecutor>) {
     tokio::spawn(async move {
-        if let Err(e) = run_engine_loop(state).await {
+        if let Err(e) = run_engine_loop(state, executor).await {
             error!(error = %e, "Engine loop exited with error");
         }
     });
 }
 
-async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
+async fn run_engine_loop(state: AppState, executor: Arc<dyn TradeExecutor>) -> anyhow::Result<()> {
     let config = state.config.read().unwrap().clone();
 
     let data_source = SdkMarketDataSource::new();
     let mut poller = MarketPoller::new(config.polling.clone());
     let fetch_config = ConcurrentFetchConfig::default();
 
-    let cached_estimator = Arc::new(CachedSlippageEstimator::new(
-        OrderbookProcessor::new(config.slippage.clone()),
-    ));
+    let cached_estimator = Arc::new(CachedSlippageEstimator::new(OrderbookProcessor::new(
+        config.slippage.clone(),
+    )));
     let slippage_estimator: Arc<dyn SlippageEstimator> = cached_estimator.clone();
 
     // Build detectors
@@ -129,7 +129,6 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         )));
     }
 
-    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
     let edge_calculator = EdgeCalculator::from_config(
         &config.fees,
         config.slippage.prefer_post_only,
@@ -142,6 +141,12 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         config.simulation.particle_count,
     );
     let prob_estimation_enabled = config.simulation.probability_estimation_enabled;
+
+    // Seed the AppState's OnceLock so sandbox/detect can access the estimator config
+    let _ = state.prob_estimator.set(EnsembleEstimator::from_config(
+        config.simulation.monte_carlo_paths,
+        config.simulation.particle_count,
+    ));
 
     if config.strategy.prob_model_enabled {
         // Create a separate estimator instance for the detector
@@ -173,56 +178,22 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         )));
     }
 
-    // Historical price store (SQLite, append-only)
-    let price_store = match PriceHistoryStore::open(
-        &ArbConfig::config_dir().join("price_history.db"),
-    ) {
-        Ok(store) => {
-            info!("Engine: price history store opened");
-            Some(store)
-        }
-        Err(e) => {
-            warn!(error = %e, "Engine: failed to open price history store, recording disabled");
-            None
-        }
-    };
-
-    // Create executor based on configured trading mode (paper or live)
-    let executor: Box<dyn TradeExecutor> = if config.is_live() {
-        info!("Starting engine in LIVE trading mode");
-        let key_path = config.general.key_file.as_ref().map(std::path::Path::new);
-        match LiveTradeExecutor::from_key_file(
-            key_path,
-            config.slippage.prefer_post_only,
-            config.risk.order_timeout_secs,
-            fee_rate,
-        )
-        .await
-        {
-            Ok(live) => Box::new(live),
-            Err(e) => {
-                error!("Failed to initialize live executor: {e}. Falling back to paper.");
-                Box::new(PaperTradeExecutor::with_fee_rate(fee_rate))
-            }
-        }
-    } else {
-        info!("Starting engine in PAPER trading mode");
-        Box::new(PaperTradeExecutor::with_fee_rate(fee_rate))
-    };
+    // Use the shared price store from AppState (created in main.rs)
+    let price_store = state.price_store.clone();
 
     // ── Phase 1: Fetch all active markets (metadata only, no orderbooks) ──
     info!("Engine: fetching initial market data from Polymarket...");
     match data_source.fetch_all_active_markets().await {
         Ok(markets) => {
-            info!(count = markets.len(), "Engine: initial market fetch complete");
+            info!(
+                count = markets.len(),
+                "Engine: initial market fetch complete"
+            );
             state.market_cache.update(&markets);
 
             // Immediately broadcast top markets to frontend (before orderbook fetch)
             // so the UI populates within seconds, not minutes
-            let top_markets: Vec<_> = markets
-                .iter()
-                .take(MAX_WS_BULK_MARKETS)
-                .collect::<Vec<_>>();
+            let top_markets: Vec<_> = markets.iter().take(MAX_WS_BULK_MARKETS).collect::<Vec<_>>();
             info!(
                 count = top_markets.len(),
                 "Engine: broadcasting initial markets to clients"
@@ -259,17 +230,19 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             info!(count = books.len(), "Engine: orderbooks fetched");
             let mut updated_markets = Vec::new();
             for market in state.market_cache.active_markets() {
-                let mut new_books = Vec::new();
-                for tid in &market.token_ids {
-                    if let Some(book) = books.get(tid) {
-                        new_books.push(book.clone());
-                    }
-                }
+                let new_books: Vec<_> = market
+                    .token_ids
+                    .iter()
+                    .filter_map(|tid| books.get(tid).cloned())
+                    .collect();
                 if !new_books.is_empty() {
                     let mut updated = (*market).clone();
                     updated.orderbooks = new_books;
-                    state.market_cache.update_one(updated.clone());
-                    updated_markets.push(updated);
+                    state.market_cache.update_one(updated);
+                    // Re-fetch the Arc for broadcasting (avoids second clone)
+                    if let Some(arc_market) = state.market_cache.get(&market.condition_id) {
+                        updated_markets.push(arc_market);
+                    }
                 }
             }
 
@@ -292,12 +265,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     let (ws_update_tx, mut ws_update_rx) = mpsc::channel::<BookUpdate>(1000);
 
     // Collect token IDs from classified markets for WS subscription (limit to 200)
-    let hot_tokens: Vec<String> = classified
-        .all_token_ids
-        .iter()
-        .take(200)
-        .cloned()
-        .collect();
+    let hot_tokens: Vec<String> = classified.all_token_ids.iter().take(200).cloned().collect();
 
     let ws_client = WsFeedClient::new(Arc::clone(&book_store), ws_update_tx);
     let _ws_sub_tx = ws_client.spawn(hot_tokens.clone());
@@ -312,7 +280,10 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
 
     loop {
         // Check kill switch (lock-free atomic read — no mutex needed on hot path)
-        if state.kill_switch_active.load(std::sync::atomic::Ordering::Relaxed) {
+        if state
+            .kill_switch_active
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         }
@@ -341,9 +312,12 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                     Ok(books) => {
                         let mut updated = (**market).clone();
                         updated.orderbooks = books;
-                        state.market_cache.update_one(updated.clone());
+                        state.market_cache.update_one(updated);
                         poller.record_poll(&market.condition_id);
-                        let _ = broadcast_event(&state, "market_update", &updated);
+                        // Broadcast the Arc version (avoids extra clone)
+                        if let Some(arc_m) = state.market_cache.get(&market.condition_id) {
+                            let _ = broadcast_event(&state, "market_update", &*arc_m);
+                        }
                     }
                     Err(e) => {
                         debug!(market = %market.condition_id, error = %e, "Orderbook refresh failed");
@@ -373,29 +347,44 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         last_scan_gen = current_gen;
         let mut opportunities = Vec::new();
 
-        for detector in &detectors {
-            match detector.scan(&markets_snapshot).await {
+        // Run all detectors in parallel — each is independent and read-only
+        // over the market snapshot. This is the biggest perf win on multi-core.
+        let scan_futures: Vec<_> = detectors
+            .iter()
+            .map(|d| d.scan(&markets_snapshot))
+            .collect();
+        let scan_results = futures_util::future::join_all(scan_futures).await;
+
+        for result in scan_results {
+            match result {
                 Ok(opps) => {
                     if !opps.is_empty() {
-                        debug!(detector = %detector.arb_type(), count = opps.len(), "Opportunities found");
+                        debug!(count = opps.len(), "Opportunities found");
                     }
                     opportunities.extend(opps);
                 }
                 Err(e) => {
-                    debug!(detector = %detector.arb_type(), error = %e, "Detector error");
+                    debug!(error = %e, "Detector error");
                 }
             }
         }
 
-        // Refine edge with VWAP
+        // Refine edge with VWAP — zero out net_edge on failure so the
+        // opportunity falls below min_edge_bps and is excluded from execution.
         for opp in &mut opportunities {
-            let _ = edge_calculator.refine_with_vwap(opp, &state.market_cache);
+            if let Err(e) = edge_calculator.refine_with_vwap(opp, &state.market_cache) {
+                debug!(opp_id = %opp.id, error = %e, "VWAP refinement failed, excluding from execution");
+                opp.net_edge = Decimal::ZERO;
+            }
         }
 
         // Enrich opportunities with ensemble probability estimates
         if prob_estimation_enabled {
             for opp in &mut opportunities {
-                if let Some(market) = opp.markets.first().and_then(|cid| state.market_cache.get(cid))
+                if let Some(market) = opp
+                    .markets
+                    .first()
+                    .and_then(|cid| state.market_cache.get(cid))
                     && let Ok(est) = prob_estimator.estimate(&market)
                 {
                     opp.confidence = est.probabilities.first().copied().unwrap_or(0.0);
@@ -403,13 +392,26 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             }
         }
 
-        // Record changed market prices to historical store every cycle.
+        // Record market prices and orderbook snapshots to SQLite.
+        // Uses Arc-aware methods to avoid deep-cloning MarketState (which
+        // includes orderbook vectors). Batch snapshot recording uses a single
+        // transaction instead of one per market.
         if let Some(ref store) = price_store
             && !markets_snapshot.is_empty()
         {
-            let dereffed: Vec<_> = markets_snapshot.iter().map(|m| (**m).clone()).collect();
-            if let Err(e) = store.record_markets(&dereffed) {
+            if let Err(e) = store.record_markets_arc(&markets_snapshot) {
                 debug!(error = %e, "Price history recording failed");
+            }
+            // Batch all orderbook snapshots in one transaction
+            let markets_with_books: Vec<&arb_core::MarketState> = markets_snapshot
+                .iter()
+                .filter(|m| !m.orderbooks.is_empty())
+                .map(|m| m.as_ref())
+                .collect();
+            if !markets_with_books.is_empty()
+                && let Err(e) = store.record_orderbook_snapshots_batch(&markets_with_books)
+            {
+                debug!(error = %e, "Orderbook snapshot batch recording failed");
             }
         }
 
@@ -496,10 +498,11 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             let _ = broadcast_event(&state, "opportunities_batch", &opportunities);
         }
 
-        // Broadcast periodic metrics + positions update, and cache metrics JSON
-        {
+        // Broadcast periodic metrics + positions update, and cache metrics JSON.
+        // Extract data from locks quickly, then serialize/broadcast outside locks.
+        let (metrics, positions) = {
             let rl = state.risk_limits.lock().unwrap();
-            let metrics = serde_json::json!({
+            let m = serde_json::json!({
                 "brier_score": rl.metrics().brier_score(),
                 "drawdown_pct": rl.metrics().drawdown_pct(),
                 "execution_quality": rl.metrics().execution_quality().to_string(),
@@ -515,20 +518,22 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                     "MultiOutcome": rl.metrics().pnl_for_type(ArbType::MultiOutcome).to_string(),
                 }
             });
+            let p = rl
+                .positions()
+                .lock()
+                .ok()
+                .map(|t| t.all_positions().into_iter().cloned().collect::<Vec<_>>());
+            (m, p)
+        }; // lock dropped — serialize + broadcast without holding it
 
-            // Cache the serialized metrics so /api/metrics doesn't need the mutex
-            if let Ok(json_str) = serde_json::to_string(&metrics)
-                && let Ok(mut cached) = state.cached_metrics_json.write()
-            {
-                *cached = json_str;
-            }
-
-            let _ = broadcast_event(&state, "metrics_update", &metrics);
-
-            if let Ok(tracker) = rl.positions().lock() {
-                let positions: Vec<_> = tracker.all_positions().into_iter().cloned().collect();
-                let _ = broadcast_event(&state, "position_update", &positions);
-            }
+        if let Ok(json_str) = serde_json::to_string(&metrics)
+            && let Ok(mut cached) = state.cached_metrics_json.write()
+        {
+            *cached = json_str;
+        }
+        let _ = broadcast_event(&state, "metrics_update", &metrics);
+        if let Some(positions) = positions {
+            let _ = broadcast_event(&state, "position_update", &positions);
         }
 
         // Periodic maintenance: clean stale poller entries every 100 cycles (~8 min)
@@ -556,4 +561,3 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
-

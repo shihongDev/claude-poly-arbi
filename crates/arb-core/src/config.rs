@@ -586,7 +586,10 @@ impl ArbConfig {
         let path = Self::default_path();
         if path.exists() {
             Self::load_from(&path).unwrap_or_else(|e| {
-                tracing::warn!("Failed to load config from {}: {e}. Using defaults.", path.display());
+                tracing::warn!(
+                    "Failed to load config from {}: {e}. Using defaults.",
+                    path.display()
+                );
                 Self::default()
             })
         } else {

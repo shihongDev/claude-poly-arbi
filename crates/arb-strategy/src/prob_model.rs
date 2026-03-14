@@ -104,7 +104,10 @@ impl ProbModelDetector {
             }
 
             let target_size = self.config.max_position;
-            let vwap = match self.slippage_estimator.estimate_vwap(book, side, target_size) {
+            let vwap = match self
+                .slippage_estimator
+                .estimate_vwap(book, side, target_size)
+            {
                 Ok(v) => v,
                 Err(_) => continue,
             };
@@ -123,7 +126,11 @@ impl ProbModelDetector {
                 continue;
             }
 
-            let token_id = market.token_ids.get(outcome_idx).cloned().unwrap_or_default();
+            let token_id = market
+                .token_ids
+                .get(outcome_idx)
+                .cloned()
+                .unwrap_or_default();
 
             debug!(
                 market = %market.condition_id,
@@ -223,8 +230,14 @@ mod tests {
             Ok(ProbEstimate {
                 probabilities: vec![self.probability, 1.0 - self.probability],
                 confidence_interval: vec![
-                    (self.probability - self.ci_width / 2.0, self.probability + self.ci_width / 2.0),
-                    (1.0 - self.probability - self.ci_width / 2.0, 1.0 - self.probability + self.ci_width / 2.0),
+                    (
+                        self.probability - self.ci_width / 2.0,
+                        self.probability + self.ci_width / 2.0,
+                    ),
+                    (
+                        1.0 - self.probability - self.ci_width / 2.0,
+                        1.0 - self.probability + self.ci_width / 2.0,
+                    ),
                 ],
                 method: "mock".into(),
             })
@@ -243,14 +256,26 @@ mod tests {
             orderbooks: vec![
                 OrderbookSnapshot {
                     token_id: "yes".into(),
-                    bids: vec![OrderbookLevel { price: yes_price - dec!(0.01), size: dec!(500) }],
-                    asks: vec![OrderbookLevel { price: yes_price, size: dec!(500) }],
+                    bids: vec![OrderbookLevel {
+                        price: yes_price - dec!(0.01),
+                        size: dec!(500),
+                    }],
+                    asks: vec![OrderbookLevel {
+                        price: yes_price,
+                        size: dec!(500),
+                    }],
                     timestamp: Utc::now(),
                 },
                 OrderbookSnapshot {
                     token_id: "no".into(),
-                    bids: vec![OrderbookLevel { price: dec!(1.00) - yes_price - dec!(0.01), size: dec!(500) }],
-                    asks: vec![OrderbookLevel { price: dec!(1.00) - yes_price, size: dec!(500) }],
+                    bids: vec![OrderbookLevel {
+                        price: dec!(1.00) - yes_price - dec!(0.01),
+                        size: dec!(500),
+                    }],
+                    asks: vec![OrderbookLevel {
+                        price: dec!(1.00) - yes_price,
+                        size: dec!(500),
+                    }],
                     timestamp: Utc::now(),
                 },
             ],
@@ -274,8 +299,8 @@ mod tests {
     #[tokio::test]
     async fn test_detects_underpriced_market() {
         let estimator = Arc::new(MockEstimator {
-            probability: 0.65,  // model says 65%
-            ci_width: 0.10,     // tight CI -> high confidence (90%)
+            probability: 0.65, // model says 65%
+            ci_width: 0.10,    // tight CI -> high confidence (90%)
         });
 
         let detector = ProbModelDetector::new(
@@ -299,7 +324,7 @@ mod tests {
     #[tokio::test]
     async fn test_skips_small_deviation() {
         let estimator = Arc::new(MockEstimator {
-            probability: 0.505,  // barely different from 0.50
+            probability: 0.505, // barely different from 0.50
             ci_width: 0.10,
         });
 

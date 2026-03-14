@@ -1,5 +1,5 @@
-use axum::{Json, extract::State};
 use arb_core::traits::RiskManager;
+use axum::{Json, extract::State};
 
 use crate::state::AppState;
 

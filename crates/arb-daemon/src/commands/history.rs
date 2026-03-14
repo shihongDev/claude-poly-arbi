@@ -12,9 +12,7 @@ pub fn execute(limit: usize) -> anyhow::Result<()> {
     // The state file contains a PositionTracker; trade history is logged separately.
     // For now, point users to the log file.
     println!("=== Trade History ===\n");
-    println!(
-        "Trade history is recorded in structured JSON logs at:"
-    );
+    println!("Trade history is recorded in structured JSON logs at:");
     println!(
         "  {}",
         config

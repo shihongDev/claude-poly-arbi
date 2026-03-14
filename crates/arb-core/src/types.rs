@@ -92,7 +92,6 @@ impl From<ArbType> for StrategyType {
     }
 }
 
-
 impl std::fmt::Display for StrategyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -255,6 +254,19 @@ pub struct Position {
     pub avg_entry_price: Decimal,
     pub current_price: Decimal,
     pub unrealized_pnl: Decimal,
+}
+
+/// A resting order on the CLOB that has not yet been fully filled.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenOrder {
+    pub order_id: String,
+    pub token_id: String,
+    pub condition_id: String,
+    pub side: Side,
+    pub price: Decimal,
+    pub original_size: Decimal,
+    pub remaining_size: Decimal,
+    pub created_at: DateTime<Utc>,
 }
 
 /// Defines a correlation relationship between two markets.

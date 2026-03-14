@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use arb_core::{
-    MarketCorrelation, MarketState, CorrelationRelationship,
+    CorrelationRelationship, MarketCorrelation, MarketState,
     error::{ArbError, Result},
 };
 use rust_decimal::Decimal;
@@ -112,7 +112,8 @@ impl CorrelationGraph {
         for pair in new_pairs {
             let already_exists = self.pairs.iter().any(|p| {
                 (p.condition_id_a == pair.condition_id_a && p.condition_id_b == pair.condition_id_b)
-                || (p.condition_id_a == pair.condition_id_b && p.condition_id_b == pair.condition_id_a)
+                    || (p.condition_id_a == pair.condition_id_b
+                        && p.condition_id_b == pair.condition_id_a)
             });
             if !already_exists {
                 self.pairs.push(pair);
