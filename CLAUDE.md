@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+
+## Autoresearch
+
+If running an autonomous experimentation loop, see `program.md` for the full agent manual covering the experiment protocol, mutable files, metric extraction, and loop instructions.
+
 ## Project Overview
 
 Polymarket arbitrage system built in Rust. Extends an existing Polymarket CLI (`polymarket-cli-main/polymarket-cli-main/`) with an institutional-grade arbitrage detection and execution engine.
