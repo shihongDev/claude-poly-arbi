@@ -37,6 +37,9 @@ pub async fn execute() -> anyhow::Result<()> {
     for market in &markets {
         let mut m = market.clone();
         let books = data_source.fetch_orderbooks(&m.token_ids).await?;
+        if books.is_empty() {
+            continue; // Skip markets with no CLOB orderbooks
+        }
         m.orderbooks = books;
         cache.update_one(m.clone());
         markets_with_books.push(Arc::new(m));

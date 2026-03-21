@@ -91,6 +91,32 @@ impl MultiOutcomeDetector {
             return Ok(opps);
         }
 
+        // Completeness check: the sum of mid-prices across all outcomes in the
+        // group must be close to 1.0 for us to trust we have the full set.
+        // Neg-risk events enforce sum=1.0 at the contract level, so a low sum
+        // means we're missing outcomes. Use a stricter threshold for small
+        // groups (where 2 out of 30+ markets can accidentally look "close").
+        let mid_sum: Decimal = group
+            .iter()
+            .filter_map(|m| m.outcome_prices.first().copied())
+            .sum();
+        let min_sum = if n <= 3 {
+            dec!(0.95) // small groups: must be very close to complete
+        } else if n <= 6 {
+            dec!(0.90)
+        } else {
+            dec!(0.85) // large groups: more tolerance (more outcomes = more data gaps)
+        };
+        if mid_sum < min_sum {
+            debug!(
+                n_markets = n,
+                mid_sum = %mid_sum,
+                min_sum = %min_sum,
+                "Skipping incomplete event group"
+            );
+            return Ok(opps);
+        }
+
         let market_ids: Vec<String> = group.iter().map(|m| m.condition_id.clone()).collect();
 
         // ─── Buy-all: sum of first-outcome ask prices ───

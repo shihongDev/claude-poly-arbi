@@ -450,7 +450,12 @@ impl MarketDataSource for SdkMarketDataSource {
     async fn fetch_markets(&self) -> Result<Vec<MarketState>> {
         use polymarket_client_sdk::gamma::types::request::MarketsRequest;
 
-        let request = MarketsRequest::builder().build();
+        let request = MarketsRequest::builder()
+            .limit(100)
+            .closed(false)
+            .order("volume24hr".to_string())
+            .ascending(false)
+            .build();
 
         let sdk_markets = self
             .gamma_client
