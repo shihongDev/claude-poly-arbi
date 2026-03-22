@@ -11,19 +11,19 @@ use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal_macros::dec;
 use tracing::debug;
 use uuid::Uuid;
 
 /// Tracks rolling volume per market and detects spikes.
 ///
-/// When current volume > `spike_multiplier` × rolling average,
+/// When current volume > `spike_multiplier` x rolling average,
 /// generates an opportunity in the direction of price movement
 /// (positive price change = buy, negative = sell).
 pub struct VolumeSpikeDetector {
     config: VolumeSpikeConfig,
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
     /// Rolling volume history: condition_id -> ring buffer of recent 24h volumes
     volume_history: Mutex<HashMap<String, VecDeque<Decimal>>>,
 }
@@ -33,11 +33,13 @@ impl VolumeSpikeDetector {
         config: VolumeSpikeConfig,
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             slippage_estimator,
+            fee_rate,
             volume_history: Mutex::new(HashMap::new()),
         }
     }
@@ -115,7 +117,7 @@ impl VolumeSpikeDetector {
 
         // Gross edge: proportional to price change magnitude
         let gross_edge = price_change.abs();
-        let fee_estimate = vwap.vwap * dec!(0.02);
+        let fee_estimate = vwap.vwap * self.fee_rate;
         let net_edge = gross_edge - fee_estimate;
         let edge_bps = net_edge * Decimal::from(10_000);
 
@@ -189,6 +191,7 @@ impl ArbDetector for VolumeSpikeDetector {
 mod tests {
     use super::*;
     use arb_core::{OrderbookLevel, OrderbookSnapshot, VwapEstimate};
+    use rust_decimal_macros::dec;
 
     struct MockSlippage;
     impl SlippageEstimator for MockSlippage {
@@ -254,6 +257,7 @@ mod tests {
             VolumeSpikeConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Seed history with low volumes, then hit a spike
@@ -280,6 +284,7 @@ mod tests {
             VolumeSpikeConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         let normal = make_market(dec!(2000), dec!(0.05));

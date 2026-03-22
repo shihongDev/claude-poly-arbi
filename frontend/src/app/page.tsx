@@ -60,6 +60,7 @@ import { MarketCardGrid } from "@/components/market-card-grid";
 import {
   AdvancedFilterPanel,
   DEFAULT_FILTERS,
+  type MarketFilters,
 } from "@/components/advanced-filter-panel";
 
 const MarketTreemap = dynamic(
@@ -292,6 +293,7 @@ export default function MarketsPage() {
   const [hasOrderbooks, setHasOrderbooks] = useState(false);
   const [minVolume, setMinVolume] = useState("0");
   const [sortBy, setSortBy] = useState<SortField>("volume");
+  const [advancedFilters, setAdvancedFilters] = useState<MarketFilters>({ ...DEFAULT_FILTERS });
 
   // Cross-reference maps
   const oppsByMarket = useMemo(() => {
@@ -352,6 +354,36 @@ export default function MarketsPage() {
       );
     }
 
+    // Advanced filters
+    if (advancedFilters.hasOpportunities) {
+      result = result.filter((m) => (oppsByMarket.get(m.condition_id) ?? 0) > 0);
+    }
+    if (advancedFilters.maxSpread > 0) {
+      result = result.filter((m) => {
+        if (!m.spread) return false;
+        const bps = parseFloat(m.spread) * 10000;
+        return bps <= advancedFilters.maxSpread;
+      });
+    }
+    if (advancedFilters.minPrice > 0 || advancedFilters.maxPrice < 100) {
+      result = result.filter((m) => {
+        const price = m.outcome_prices[0] ? parseFloat(m.outcome_prices[0]) * 100 : 0;
+        return price >= advancedFilters.minPrice && price <= advancedFilters.maxPrice;
+      });
+    }
+    if (advancedFilters.outcomesFilter === "binary") {
+      result = result.filter((m) => m.outcomes.length === 2);
+    } else if (advancedFilters.outcomesFilter === "multi") {
+      result = result.filter((m) => m.outcomes.length > 2);
+    }
+    if (advancedFilters.expiresWithin > 0) {
+      const cutoff = Date.now() + advancedFilters.expiresWithin * 24 * 60 * 60 * 1000;
+      result = result.filter((m) => {
+        if (!m.end_date_iso) return false;
+        return new Date(m.end_date_iso).getTime() <= cutoff;
+      });
+    }
+
     result = [...result].sort((a, b) => {
       switch (sortBy) {
         case "volume":
@@ -379,7 +411,7 @@ export default function MarketsPage() {
     });
 
     return result;
-  }, [enrichedMarkets, search, activeOnly, hasOrderbooks, minVolume, sortBy]);
+  }, [enrichedMarkets, search, activeOnly, hasOrderbooks, minVolume, sortBy, advancedFilters, oppsByMarket]);
 
   // Summary stats
   const stats = useMemo(() => {
@@ -619,6 +651,7 @@ export default function MarketsPage() {
               data={filteredMarkets}
               pageSize={20}
               onRowClick={handleRowClick}
+              keyExtractor={(row) => row.condition_id}
             />
           </div>
         )
@@ -647,8 +680,17 @@ export default function MarketsPage() {
       <AdvancedFilterPanel
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
-        filters={{ ...DEFAULT_FILTERS, activeOnly, search }}
-        onFiltersChange={() => {}}
+        filters={{ ...advancedFilters, activeOnly, search }}
+        onFiltersChange={(newFilters) => {
+          setAdvancedFilters(newFilters);
+          // Sync shared filters back to page-level state
+          setActiveOnly(newFilters.activeOnly);
+          setSearch(newFilters.search);
+          setHasOrderbooks(newFilters.hasOrderbooks);
+          if (newFilters.minVolume > 0) {
+            setMinVolume(String(newFilters.minVolume));
+          }
+        }}
         marketCount={filteredMarkets.length}
         totalCount={markets.length}
       />

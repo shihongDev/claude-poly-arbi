@@ -162,17 +162,18 @@ export default function PlaygroundPage() {
 
   // Load live config on mount to seed defaults
   useEffect(() => {
-    fetchApi<Record<string, unknown>>("/api/config")
+    fetchApi<{ strategy?: Record<string, unknown>; [key: string]: unknown }>("/api/config")
       .then((live) => {
+        const strategy = live.strategy ?? live;
         setConfig((prev) => ({
           ...prev,
-          min_edge_bps: (live.min_edge_bps as number) ?? prev.min_edge_bps,
+          min_edge_bps: (strategy.min_edge_bps as number) ?? prev.min_edge_bps,
           intra_market_enabled:
-            (live.intra_market_enabled as boolean) ?? prev.intra_market_enabled,
+            (strategy.intra_market_enabled as boolean) ?? prev.intra_market_enabled,
           cross_market_enabled:
-            (live.cross_market_enabled as boolean) ?? prev.cross_market_enabled,
+            (strategy.cross_market_enabled as boolean) ?? prev.cross_market_enabled,
           multi_outcome_enabled:
-            (live.multi_outcome_enabled as boolean) ?? prev.multi_outcome_enabled,
+            (strategy.multi_outcome_enabled as boolean) ?? prev.multi_outcome_enabled,
         }));
       })
       .catch(() => {});
@@ -777,6 +778,7 @@ export default function PlaygroundPage() {
                       data={detectResult.opportunities}
                       pageSize={25}
                       onRowClick={(row) => setSelectedOpp(row)}
+                      keyExtractor={(row) => row.id}
                     />
                   )}
                 </div>

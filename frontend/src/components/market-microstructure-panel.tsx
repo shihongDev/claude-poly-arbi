@@ -36,15 +36,15 @@ export function MarketMicrostructurePanel({
         const p = parseFloat(lvl.price);
         const s = parseFloat(lvl.size);
         totalBidSize += p * s;
-        bidVwapNum += p * p * s;
-        bidVwapDen += p * s;
+        bidVwapNum += p * s;
+        bidVwapDen += s;
       }
       for (const lvl of topAsks) {
         const p = parseFloat(lvl.price);
         const s = parseFloat(lvl.size);
         totalAskSize += p * s;
-        askVwapNum += p * p * s;
-        askVwapDen += p * s;
+        askVwapNum += p * s;
+        askVwapDen += s;
       }
     }
 

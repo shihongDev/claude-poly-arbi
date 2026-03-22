@@ -1,7 +1,6 @@
 use std::sync::atomic::Ordering;
 
 use arb_core::traits::RiskManager;
-use arb_risk::kill_switch::KillSwitch;
 use axum::{Json, extract::State};
 use serde::Deserialize;
 
@@ -38,9 +37,11 @@ pub async fn kill(
 }
 
 pub async fn resume(State(state): State<AppState>) -> Json<serde_json::Value> {
-    // KillSwitch is file-based; create a new instance to deactivate the file
-    let mut ks = KillSwitch::new();
-    ks.deactivate();
+    // Deactivate kill switch in the shared RiskLimits (authoritative state)
+    {
+        let mut risk = state.risk_limits.lock().unwrap();
+        risk.deactivate_kill_switch();
+    }
 
     // Mirror to lock-free AtomicBool so engine loop sees the change immediately
     state.kill_switch_active.store(false, Ordering::Relaxed);

@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::FutureExt;
-
 use arb_core::{
     RiskDecision,
     config::ArbConfig,
@@ -30,7 +28,7 @@ use arb_strategy::volume_spike::VolumeSpikeDetector;
 use rust_decimal::Decimal;
 use tracing::{debug, error, info, warn};
 
-/// The main arbitrage engine: orchestrates the detect→risk→execute pipeline.
+/// The main arbitrage engine: orchestrates the detect->risk->execute pipeline.
 pub struct ArbEngine {
     config: ArbConfig,
     data_source: SdkMarketDataSource,
@@ -52,6 +50,8 @@ impl ArbEngine {
         let slippage_estimator: Arc<dyn SlippageEstimator> =
             Arc::new(OrderbookProcessor::new(config.slippage.clone()));
 
+        let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
+
         // Build detectors based on config
         let mut detectors: Vec<Box<dyn ArbDetector>> = Vec::new();
 
@@ -60,6 +60,7 @@ impl ArbEngine {
                 config.strategy.intra_market.clone(),
                 config.strategy.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
@@ -68,6 +69,7 @@ impl ArbEngine {
                 config.strategy.multi_outcome.clone(),
                 config.strategy.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
@@ -119,6 +121,7 @@ impl ArbEngine {
                 Arc::new(correlation_graph),
                 cache.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
@@ -127,6 +130,7 @@ impl ArbEngine {
                 config.strategy.resolution_sniping.clone(),
                 config.strategy.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
@@ -135,6 +139,7 @@ impl ArbEngine {
                 config.strategy.stale_market.clone(),
                 config.strategy.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
@@ -143,6 +148,7 @@ impl ArbEngine {
                 config.strategy.volume_spike.clone(),
                 config.strategy.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
@@ -151,6 +157,7 @@ impl ArbEngine {
                 config.strategy.liquidity_sniping.clone(),
                 config.strategy.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
@@ -159,10 +166,10 @@ impl ArbEngine {
                 config.strategy.market_making.clone(),
                 config.strategy.clone(),
                 slippage_estimator.clone(),
+                fee_rate,
             )));
         }
 
-        let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
         let edge_calculator = EdgeCalculator::from_config(
             &config.fees,
             config.slippage.prefer_post_only,
@@ -247,13 +254,10 @@ impl ArbEngine {
             }
         }
 
-        loop {
-            // Check for Ctrl+C
-            if tokio::signal::ctrl_c().now_or_never().is_some() {
-                info!("Ctrl+C received, shutting down...");
-                break;
-            }
+        // Create a single ctrl_c future that persists across iterations
+        let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
 
+        loop {
             // 1. Check kill switch
             if self.risk_manager.is_kill_switch_active() {
                 debug!("Kill switch active, sleeping...");
@@ -401,8 +405,14 @@ impl ArbEngine {
             self.monitor
                 .check_drawdown(self.risk_manager.metrics().drawdown_pct());
 
-            // Sleep before next tick
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Sleep before next tick, but also check for Ctrl+C
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                _ = &mut shutdown => {
+                    info!("Ctrl+C received, shutting down...");
+                    break;
+                }
+            }
         }
 
         // Graceful shutdown: save state

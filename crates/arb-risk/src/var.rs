@@ -176,7 +176,7 @@ mod tests {
         // Sorted ascending: [-10, -9, -8, ..., 9]
         // alpha_95 = 0.05, floor(0.05 * 20) = 1 → sorted[1] = -9 → VaR_95 = 9
         // alpha_99 = 0.01, floor(0.01 * 20) = 0 → sorted[0] = -10 → VaR_99 = 10
-        let pnl: Vec<Decimal> = (-10..=9).map(|x| Decimal::from(x)).collect();
+        let pnl: Vec<Decimal> = (-10..=9).map(Decimal::from).collect();
         assert_eq!(pnl.len(), 20);
 
         let result = historical_var(&pnl, 0.95);
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn test_historical_var_all_positive() {
         // If all PnL are positive, VaR should still be computed from worst
-        let pnl: Vec<Decimal> = (1..=100).map(|x| Decimal::from(x)).collect();
+        let pnl: Vec<Decimal> = (1..=100).map(Decimal::from).collect();
         let result = historical_var(&pnl, 0.95);
         // Worst 5% starts at pnl=1..5, VaR = -sorted[4] = -5 → but these are all positive
         // so var = -1 through -5, but we take -sorted[idx] which is -(positive) = negative → clamped?
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_var_99_exceeds_var_95() {
-        let pnl: Vec<Decimal> = (-50..=50).map(|x| Decimal::from(x)).collect();
+        let pnl: Vec<Decimal> = (-50..=50).map(Decimal::from).collect();
         let result = historical_var(&pnl, 0.95);
         assert!(
             result.var_99 >= result.var_95,

@@ -14,20 +14,21 @@ use rust_decimal_macros::dec;
 use tracing::debug;
 use uuid::Uuid;
 
-/// Detects resolution sniping (扫尾盘) opportunities.
+/// Detects resolution sniping opportunities.
 ///
 /// Markets approaching their resolution date often have one outcome trading
 /// near $1.00. If the leading outcome is priced between `min_price` and
-/// `max_price` (e.g., $0.92–$0.98) and the market resolves within
+/// `max_price` (e.g., $0.92-$0.98) and the market resolves within
 /// `max_hours_to_resolution`, buying the leader at a discount captures the
 /// spread to $1.00 at resolution.
 ///
-/// This is directional (not risk-free) — confidence depends on how close
+/// This is directional (not risk-free) -- confidence depends on how close
 /// the price is to $1.00 and the market's volume.
 pub struct ResolutionSnipingDetector {
     config: ResolutionSnipingConfig,
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
 }
 
 impl ResolutionSnipingDetector {
@@ -35,11 +36,13 @@ impl ResolutionSnipingDetector {
         config: ResolutionSnipingConfig,
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             slippage_estimator,
+            fee_rate,
         }
     }
 
@@ -108,8 +111,8 @@ impl ResolutionSnipingDetector {
             let gross_edge = dec!(1.00) - *price;
             let net_edge_per_unit = dec!(1.00) - vwap.vwap;
 
-            // Subtract fees (~2% on notional)
-            let fee_estimate = vwap.vwap * dec!(0.02);
+            // Subtract fees (fee_rate on notional)
+            let fee_estimate = vwap.vwap * self.fee_rate;
             let net_edge_after_fees = net_edge_per_unit - fee_estimate;
 
             let edge_bps = net_edge_after_fees * Decimal::from(10_000);
@@ -270,6 +273,7 @@ mod tests {
             ResolutionSnipingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         let market = make_market(dec!(0.95), 24);
@@ -287,6 +291,7 @@ mod tests {
             ResolutionSnipingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Price too low (0.50 < min_price 0.92)
@@ -303,6 +308,7 @@ mod tests {
             ResolutionSnipingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // 100 hours > max_hours 48
@@ -322,6 +328,7 @@ mod tests {
             ResolutionSnipingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         let markets: Vec<Arc<MarketState>> = vec![Arc::new(market)];
@@ -335,6 +342,7 @@ mod tests {
             ResolutionSnipingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         let m1 = make_market(dec!(0.92), 24);

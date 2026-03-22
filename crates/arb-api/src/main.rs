@@ -3,6 +3,7 @@ mod routes;
 mod state;
 mod ws;
 
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
@@ -65,10 +66,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ── Load persisted execution history ───────────────────────
-    let initial_history: Vec<ExecutionReport> = if history_path.exists() {
+    let initial_history: VecDeque<ExecutionReport> = if history_path.exists() {
         match std::fs::read_to_string(&history_path) {
             Ok(content) => {
-                let history: Vec<ExecutionReport> =
+                let history: VecDeque<ExecutionReport> =
                     serde_json::from_str(&content).unwrap_or_default();
                 tracing::info!(
                     path = %history_path.display(),
@@ -83,11 +84,11 @@ async fn main() -> anyhow::Result<()> {
                     path = %history_path.display(),
                     "Failed to load history, starting fresh"
                 );
-                Vec::new()
+                VecDeque::new()
             }
         }
     } else {
-        Vec::new()
+        VecDeque::new()
     };
 
     // Check if the file-based kill switch is already active at startup

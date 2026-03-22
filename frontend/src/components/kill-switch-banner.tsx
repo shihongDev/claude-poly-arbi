@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDashboardStore } from "@/store";
 import { fetchApi } from "@/lib/api";
@@ -8,14 +9,20 @@ import { fetchApi } from "@/lib/api";
 export function KillSwitchBanner() {
   const killSwitchActive = useDashboardStore((s) => s.killSwitchActive);
   const killSwitchReason = useDashboardStore((s) => s.killSwitchReason);
+  const setKillSwitch = useDashboardStore((s) => s.setKillSwitch);
+  const [resuming, setResuming] = useState(false);
 
   if (!killSwitchActive) return null;
 
   const handleResume = async () => {
+    setResuming(true);
     try {
       await fetchApi("/api/resume", { method: "POST" });
-    } catch {
-      /* toast error in future */
+      setKillSwitch(false);
+    } catch (error) {
+      console.error("Failed to resume trading:", error);
+    } finally {
+      setResuming(false);
     }
   };
 
@@ -36,9 +43,11 @@ export function KillSwitchBanner() {
         variant="outline"
         size="sm"
         onClick={handleResume}
+        disabled={resuming}
         className="border-white/30 bg-transparent text-white hover:bg-[#9E3F33] hover:text-white"
       >
-        Resume Trading
+        {resuming && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+        {resuming ? "Resuming..." : "Resume Trading"}
       </Button>
     </div>
   );

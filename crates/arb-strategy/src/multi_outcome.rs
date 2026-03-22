@@ -23,6 +23,7 @@ pub struct MultiOutcomeDetector {
     config: MultiOutcomeConfig,
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
 }
 
 impl MultiOutcomeDetector {
@@ -30,11 +31,13 @@ impl MultiOutcomeDetector {
         config: MultiOutcomeConfig,
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             slippage_estimator,
+            fee_rate,
         }
     }
 
@@ -173,7 +176,7 @@ impl MultiOutcomeDetector {
                     if all_ok {
                         let vwap_sum: Decimal = vwaps.iter().sum();
                         let net_edge = dec!(1.00) - vwap_sum;
-                        let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                        let fee_estimate = target_size * vwap_sum * self.fee_rate;
                         let net_edge_after_fees = net_edge * target_size - fee_estimate;
                         let net_edge_per_unit = net_edge_after_fees / target_size;
                         let edge_bps = net_edge_per_unit * Decimal::from(10_000);
@@ -259,7 +262,7 @@ impl MultiOutcomeDetector {
                     if all_ok {
                         let vwap_sum: Decimal = vwaps.iter().sum();
                         let net_edge = vwap_sum - dec!(1.00);
-                        let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                        let fee_estimate = target_size * vwap_sum * self.fee_rate;
                         let net_edge_after_fees = net_edge * target_size - fee_estimate;
                         let net_edge_per_unit = net_edge_after_fees / target_size;
                         let edge_bps = net_edge_per_unit * Decimal::from(10_000);
@@ -373,7 +376,7 @@ impl MultiOutcomeDetector {
                         if all_ok {
                             let vwap_sum: Decimal = vwaps.iter().sum();
                             let net_edge = dec!(1.00) - vwap_sum;
-                            let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                            let fee_estimate = target_size * vwap_sum * self.fee_rate;
                             let net_edge_after_fees = net_edge * target_size - fee_estimate;
                             let net_edge_per_unit = net_edge_after_fees / target_size;
                             let edge_bps = net_edge_per_unit * Decimal::from(10_000);
@@ -459,7 +462,7 @@ impl MultiOutcomeDetector {
                         if all_ok {
                             let vwap_sum: Decimal = vwaps.iter().sum();
                             let net_edge = vwap_sum - dec!(1.00);
-                            let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                            let fee_estimate = target_size * vwap_sum * self.fee_rate;
                             let net_edge_after_fees = net_edge * target_size - fee_estimate;
                             let net_edge_per_unit = net_edge_after_fees / target_size;
                             let edge_bps = net_edge_per_unit * Decimal::from(10_000);

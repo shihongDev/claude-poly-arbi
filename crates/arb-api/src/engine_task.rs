@@ -45,11 +45,34 @@ const MAX_ORDERBOOK_TOKENS: usize = 400;
 /// Maximum markets to send in a single WS bulk event.
 const MAX_WS_BULK_MARKETS: usize = 500;
 
+/// Maximum backoff delay between engine restart attempts.
+const MAX_RESTART_BACKOFF_SECS: u64 = 30;
+
 /// Spawn the background engine loop. Shares state with the API handlers.
+/// If the engine crashes, it will be automatically restarted with exponential backoff.
 pub fn spawn_engine(state: AppState) {
     tokio::spawn(async move {
-        if let Err(e) = run_engine_loop(state).await {
-            error!(error = %e, "Engine loop exited with error");
+        let mut backoff_secs: u64 = 1;
+
+        loop {
+            match run_engine_loop(state.clone()).await {
+                Ok(()) => {
+                    info!("Engine loop exited cleanly");
+                    break;
+                }
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        restart_in_secs = backoff_secs,
+                        "Engine loop crashed — will restart with backoff"
+                    );
+
+                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                    backoff_secs = (backoff_secs * 2).min(MAX_RESTART_BACKOFF_SECS);
+
+                    warn!("Restarting engine loop...");
+                }
+            }
         }
     });
 }
@@ -66,6 +89,8 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     ));
     let slippage_estimator: Arc<dyn SlippageEstimator> = cached_estimator.clone();
 
+    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
+
     // Build detectors
     let mut detectors: Vec<Box<dyn ArbDetector>> = Vec::new();
 
@@ -74,6 +99,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.intra_market.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
@@ -82,6 +108,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.multi_outcome.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
@@ -102,6 +129,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             Arc::new(graph),
             state.market_cache.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
@@ -110,6 +138,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.resolution_sniping.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
@@ -118,6 +147,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.stale_market.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
@@ -126,10 +156,10 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.volume_spike.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
-    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
     let edge_calculator = EdgeCalculator::from_config(
         &config.fees,
         config.slippage.prefer_post_only,
@@ -154,6 +184,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.clone(),
             slippage_estimator.clone(),
             Arc::new(detector_estimator),
+            fee_rate,
         )));
     }
 
@@ -162,6 +193,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.liquidity_sniping.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
@@ -170,6 +202,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             config.strategy.market_making.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            fee_rate,
         )));
     }
 
@@ -201,7 +234,16 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         {
             Ok(live) => Box::new(live),
             Err(e) => {
-                error!("Failed to initialize live executor: {e}. Falling back to paper.");
+                let reason = format!("CRITICAL: Live executor init failed: {e}. Refusing silent fallback to paper mode.");
+                error!("{reason}");
+                // Activate kill switch instead of silently falling back to paper mode.
+                // A silent fallback means the operator thinks they are trading live
+                // but all trades are simulated — this is a critical safety issue.
+                {
+                    let mut rl = state.risk_limits.lock().unwrap();
+                    rl.activate_kill_switch(&reason);
+                }
+                state.kill_switch_active.store(true, std::sync::atomic::Ordering::Relaxed);
                 Box::new(PaperTradeExecutor::with_fee_rate(fee_rate))
             }
         }
@@ -311,7 +353,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
     let mut cycle_count: u64 = 0;
 
     loop {
-        // Check kill switch (lock-free atomic read — no mutex needed on hot path)
+        // Check kill switch (lock-free atomic read -- no mutex needed on hot path)
         if state.kill_switch_active.load(std::sync::atomic::Ordering::Relaxed) {
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
@@ -413,7 +455,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             }
         }
 
-        // Filter and sort — read min_edge_bps from live config each tick
+        // Filter and sort -- read min_edge_bps from live config each tick
         // so runtime changes via PUT /api/config take effect immediately
         let min_edge = {
             let cfg = state.config.read().unwrap();
@@ -431,8 +473,9 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
             };
 
             match decision {
-                Ok(RiskDecision::Approve { max_size: _ }) => {
-                    match executor.execute_opportunity(opp).await {
+                Ok(RiskDecision::Approve { max_size }) => {
+                    let sized_opp = opp.with_max_size(max_size);
+                    match executor.execute_opportunity(&sized_opp).await {
                         Ok(report) => {
                             {
                                 let mut rl = state.risk_limits.lock().unwrap();
@@ -448,7 +491,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                             );
                         }
                         Err(e) => {
-                            debug!(opp_id = %opp.id, error = %e, "Execution failed");
+                            error!(opp_id = %opp.id, error = %e, "Execution failed");
                         }
                     }
                 }
@@ -469,7 +512,7 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                             );
                         }
                         Err(e) => {
-                            debug!(opp_id = %opp.id, error = %e, "Execution failed");
+                            error!(opp_id = %opp.id, error = %e, "Execution failed");
                         }
                     }
                 }
@@ -479,6 +522,33 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
                 Err(e) => {
                     debug!(opp_id = %opp.id, error = %e, "Risk check failed");
                 }
+            }
+        }
+
+        // Check daily loss limit (mirrors daemon engine check)
+        {
+            let rl = state.risk_limits.lock().unwrap();
+            let daily_pnl = rl.daily_pnl();
+            let daily_limit = {
+                let cfg = state.config.read().unwrap();
+                cfg.risk.daily_loss_limit
+            };
+            if daily_pnl < -daily_limit {
+                drop(rl);
+                let reason = format!(
+                    "Daily loss limit hit: {} < -{}",
+                    daily_pnl, daily_limit
+                );
+                error!("{reason}");
+                {
+                    let mut rl = state.risk_limits.lock().unwrap();
+                    rl.activate_kill_switch(&reason);
+                }
+                state.kill_switch_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                let _ = broadcast_event(&state, "kill_switch_change", &serde_json::json!({
+                    "active": true,
+                    "reason": reason,
+                }));
             }
         }
 
@@ -556,4 +626,3 @@ async fn run_engine_loop(state: AppState) -> anyhow::Result<()> {
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
-

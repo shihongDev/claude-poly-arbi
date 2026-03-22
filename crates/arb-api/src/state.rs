@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
@@ -18,7 +19,7 @@ pub struct AppState {
     pub config: Arc<RwLock<ArbConfig>>,
     pub ws_tx: broadcast::Sender<String>,
     pub opportunities: Arc<RwLock<Vec<Opportunity>>>,
-    pub execution_history: Arc<RwLock<Vec<ExecutionReport>>>,
+    pub execution_history: Arc<RwLock<VecDeque<ExecutionReport>>>,
     /// Pre-serialized metrics JSON — updated each engine cycle to avoid
     /// mutex lock + serialization on every `/api/metrics` request.
     pub cached_metrics_json: Arc<RwLock<String>>,

@@ -28,6 +28,7 @@ interface DataTableProps<T> {
   pageSize?: number;
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string;
+  keyExtractor?: (row: T, index: number) => string;
 }
 
 type SortDirection = "asc" | "desc" | null;
@@ -38,6 +39,7 @@ export function DataTable<T>({
   pageSize,
   onRowClick,
   rowClassName,
+  keyExtractor,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDirection>(null);
@@ -124,7 +126,7 @@ export function DataTable<T>({
           ) : (
             paginatedData.map((row, i) => (
               <TableRow
-                key={i}
+                key={keyExtractor ? keyExtractor(row, i) : i}
                 className={cn(
                   "hover:bg-[#F8F7F4]",
                   onRowClick && "cursor-pointer",

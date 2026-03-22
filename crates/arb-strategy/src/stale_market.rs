@@ -24,6 +24,7 @@ pub struct StaleMarketDetector {
     config: StaleMarketConfig,
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
 }
 
 impl StaleMarketDetector {
@@ -31,11 +32,13 @@ impl StaleMarketDetector {
         config: StaleMarketConfig,
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             slippage_estimator,
+            fee_rate,
         }
     }
 
@@ -119,7 +122,7 @@ impl StaleMarketDetector {
             };
 
             let gross_edge = divergence.abs();
-            let fee_estimate = vwap.vwap * dec!(0.02);
+            let fee_estimate = vwap.vwap * self.fee_rate;
             let net_edge = gross_edge - fee_estimate;
             let edge_bps = net_edge * Decimal::from(10_000);
 
@@ -274,6 +277,7 @@ mod tests {
             StaleMarketConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Market A: stale (30h), priced at 0.40
@@ -297,6 +301,7 @@ mod tests {
             StaleMarketConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Both fresh (1h < 24h threshold)
@@ -315,6 +320,7 @@ mod tests {
             StaleMarketConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Market A stale but prices barely differ

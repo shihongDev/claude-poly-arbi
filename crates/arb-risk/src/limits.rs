@@ -22,7 +22,7 @@ use crate::position_tracker::PositionTracker;
 pub struct RiskLimits {
     config: RiskConfig,
     positions: Arc<Mutex<PositionTracker>>,
-    kill_switch: KillSwitch,
+    kill_switch: Mutex<KillSwitch>,
     metrics: PerformanceMetrics,
     daily_pnl: Decimal,
     daily_reset: DateTime<Utc>,
@@ -34,7 +34,7 @@ impl RiskLimits {
         Self {
             config,
             positions: Arc::new(Mutex::new(PositionTracker::new())),
-            kill_switch: KillSwitch::new(),
+            kill_switch: Mutex::new(KillSwitch::new()),
             metrics: PerformanceMetrics::new(starting_equity),
             daily_pnl: Decimal::ZERO,
             daily_reset: Utc::now(),
@@ -73,13 +73,20 @@ impl RiskLimits {
 
 impl RiskManager for RiskLimits {
     fn check_opportunity(&self, opp: &Opportunity) -> Result<RiskDecision> {
+        // Fix T1-29: Re-read kill switch file every check (detect external activation)
+        let kill_active = {
+            let mut ks = self.kill_switch.lock().unwrap();
+            ks.check()
+        };
+
         // Check kill switch first
-        if self.kill_switch.is_active() {
+        if kill_active {
+            let reason = {
+                let ks = self.kill_switch.lock().unwrap();
+                ks.reason().unwrap_or("unknown").to_string()
+            };
             return Ok(RiskDecision::Reject {
-                reason: format!(
-                    "Kill switch active: {}",
-                    self.kill_switch.reason().unwrap_or("unknown")
-                ),
+                reason: format!("Kill switch active: {}", reason),
             });
         }
 
@@ -120,7 +127,11 @@ impl RiskManager for RiskLimits {
         if current_exposure + new_exposure > self.config.max_total_exposure {
             // Try reducing size proportionally
             let available = self.config.max_total_exposure - current_exposure;
-            if available > Decimal::ZERO && new_exposure > Decimal::ZERO {
+            // Fix P0-02: Guard against division by zero when size_available <= 0
+            if available > Decimal::ZERO
+                && new_exposure > Decimal::ZERO
+                && opp.size_available > Decimal::ZERO
+            {
                 // Compute the per-unit notional exposure
                 let exposure_per_unit = new_exposure / opp.size_available;
                 let new_size = available / exposure_per_unit;
@@ -143,7 +154,12 @@ impl RiskManager for RiskLimits {
         // Check per-market position limits
         for market_cid in &opp.markets {
             let market_exposure = tracker.market_exposure(market_cid);
-            if market_exposure + new_exposure > self.config.max_position_per_market {
+            // Fix T1-30: Use per-market share of exposure, not total new_exposure.
+            // When an opportunity spans multiple markets, each market should only
+            // be checked against its proportional share of the total exposure.
+            let market_count = opp.markets.len().max(1);
+            let per_market_exposure = new_exposure / Decimal::from(market_count);
+            if market_exposure + per_market_exposure > self.config.max_position_per_market {
                 let available = self.config.max_position_per_market - market_exposure;
                 if available > Decimal::ZERO {
                     return Ok(RiskDecision::ReduceSize {
@@ -172,6 +188,24 @@ impl RiskManager for RiskLimits {
         self.check_daily_reset();
         self.daily_pnl += report.realized_edge;
 
+        // Fix T1-27: Track open order count -- increment on new execution
+        self.open_order_count += report.legs.len();
+
+        // Decrement for completed fills (fully filled, rejected, or cancelled)
+        let completed_legs = report
+            .legs
+            .iter()
+            .filter(|l| {
+                matches!(
+                    l.status,
+                    arb_core::FillStatus::FullyFilled
+                        | arb_core::FillStatus::Rejected
+                        | arb_core::FillStatus::Cancelled
+                )
+            })
+            .count();
+        self.open_order_count = self.open_order_count.saturating_sub(completed_legs);
+
         let mut tracker = self.positions.lock().unwrap();
         tracker.update(report);
 
@@ -180,11 +214,15 @@ impl RiskManager for RiskLimits {
     }
 
     fn is_kill_switch_active(&self) -> bool {
-        self.kill_switch.is_active()
+        self.kill_switch.lock().unwrap().is_active()
     }
 
     fn activate_kill_switch(&mut self, reason: &str) {
-        self.kill_switch.activate(reason);
+        self.kill_switch.lock().unwrap().activate(reason);
+    }
+
+    fn deactivate_kill_switch(&mut self) {
+        self.kill_switch.lock().unwrap().deactivate();
     }
 
     fn daily_pnl(&self) -> Decimal {
@@ -293,7 +331,11 @@ mod tests {
     use arb_core::{ArbType, Side, StrategyType, TradeLeg};
     use chrono::Utc;
     use rust_decimal_macros::dec;
+    use std::sync::Mutex as StdMutex;
     use uuid::Uuid;
+
+    // Serialize tests that touch the shared kill switch file to avoid races.
+    static KILL_SWITCH_LOCK: StdMutex<()> = StdMutex::new(());
 
     fn default_config() -> RiskConfig {
         RiskConfig {
@@ -336,13 +378,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_approve_within_limits() {
-        // Ensure no kill switch file from other tests
+    /// Helper: ensure the kill switch file is removed before running a test.
+    fn ensure_kill_switch_off() {
         let mut ks = crate::kill_switch::KillSwitch::new();
         if ks.is_active() {
             ks.deactivate();
         }
+    }
+
+    #[test]
+    fn test_approve_within_limits() {
+        let _lock = KILL_SWITCH_LOCK.lock().unwrap();
+        ensure_kill_switch_off();
 
         let rm = RiskLimits::new(default_config(), dec!(5000));
         let opp = make_opp(dec!(100));
@@ -357,6 +404,9 @@ mod tests {
 
     #[test]
     fn test_reject_over_exposure() {
+        let _lock = KILL_SWITCH_LOCK.lock().unwrap();
+        ensure_kill_switch_off();
+
         let config = RiskConfig {
             max_total_exposure: dec!(50), // very low
             ..default_config()
@@ -375,6 +425,9 @@ mod tests {
 
     #[test]
     fn test_reject_kill_switch() {
+        let _lock = KILL_SWITCH_LOCK.lock().unwrap();
+        ensure_kill_switch_off();
+
         let mut rm = RiskLimits::new(default_config(), dec!(5000));
         rm.activate_kill_switch("test reason");
 
@@ -391,11 +444,102 @@ mod tests {
         ks.deactivate();
     }
 
+    #[test]
+    fn test_zero_size_available_no_panic() {
+        // Fix P0-02: Ensure zero size_available doesn't cause division by zero
+        let _lock = KILL_SWITCH_LOCK.lock().unwrap();
+        ensure_kill_switch_off();
+
+        let config = RiskConfig {
+            max_total_exposure: dec!(50), // low enough to trigger ReduceSize path
+            ..default_config()
+        };
+
+        let rm = RiskLimits::new(config, dec!(5000));
+        let mut opp = make_opp(dec!(100));
+        opp.size_available = Decimal::ZERO; // trigger the division by zero path
+
+        // Should reject, not panic
+        match rm.check_opportunity(&opp).unwrap() {
+            RiskDecision::Reject { .. } => {} // expected: falls through to reject
+            RiskDecision::ReduceSize { .. } => {} // also acceptable
+            other => panic!("Expected Reject or ReduceSize, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_open_order_count_tracking() {
+        // Fix T1-27: Verify open_order_count is maintained
+        let _lock = KILL_SWITCH_LOCK.lock().unwrap();
+        ensure_kill_switch_off();
+
+        let mut rm = RiskLimits::new(default_config(), dec!(5000));
+        assert_eq!(rm.open_order_count, 0);
+
+        // Record an execution with 2 fully filled legs
+        let report = arb_core::ExecutionReport {
+            opportunity_id: Uuid::new_v4(),
+            legs: vec![
+                arb_core::LegReport {
+                    order_id: "o1".into(),
+                    token_id: "yes".into(),
+                    condition_id: "c1".into(),
+                    side: Side::Buy,
+                    expected_vwap: dec!(0.50),
+                    actual_fill_price: dec!(0.50),
+                    filled_size: dec!(100),
+                    status: arb_core::FillStatus::FullyFilled,
+                },
+                arb_core::LegReport {
+                    order_id: "o2".into(),
+                    token_id: "no".into(),
+                    condition_id: "c1".into(),
+                    side: Side::Buy,
+                    expected_vwap: dec!(0.48),
+                    actual_fill_price: dec!(0.48),
+                    filled_size: dec!(100),
+                    status: arb_core::FillStatus::FullyFilled,
+                },
+            ],
+            realized_edge: dec!(0.01),
+            slippage: Decimal::ZERO,
+            total_fees: Decimal::ZERO,
+            timestamp: Utc::now(),
+            mode: arb_core::TradingMode::Paper,
+        };
+        rm.record_execution(&report, ArbType::IntraMarket);
+        // 2 legs added, 2 fully filled removed => 0
+        assert_eq!(rm.open_order_count, 0);
+
+        // Record with a partial fill (stays open)
+        let report2 = arb_core::ExecutionReport {
+            opportunity_id: Uuid::new_v4(),
+            legs: vec![arb_core::LegReport {
+                order_id: "o3".into(),
+                token_id: "yes".into(),
+                condition_id: "c1".into(),
+                side: Side::Buy,
+                expected_vwap: dec!(0.50),
+                actual_fill_price: dec!(0.50),
+                filled_size: dec!(50),
+                status: arb_core::FillStatus::PartiallyFilled,
+            }],
+            realized_edge: Decimal::ZERO,
+            slippage: Decimal::ZERO,
+            total_fees: Decimal::ZERO,
+            timestamp: Utc::now(),
+            mode: arb_core::TradingMode::Paper,
+        };
+        rm.record_execution(&report2, ArbType::IntraMarket);
+        // 1 leg added, 0 completed => 1 open
+        assert_eq!(rm.open_order_count, 1);
+    }
+
     // --- Kelly criterion tests ---
 
     #[test]
     fn test_kelly_favorable_edge() {
-        // 60% win probability, win $2 / lose $1 → f* = (0.6*2 - 0.4) / 2 = 0.4
+        // 60% win probability, win $2 / lose $1 -> f* = (0.6*2 - 0.4) / 2 = 0.4
         let result = kelly_criterion(0.60, dec!(2), dec!(1), dec!(10000), 1.0);
         let expected_f = (0.6 * 2.0 - 0.4) / 2.0; // 0.4
         assert!(
@@ -409,8 +553,8 @@ mod tests {
 
     #[test]
     fn test_kelly_unfavorable_edge() {
-        // 30% win probability, win $1 / lose $1 → f* = (0.3*1 - 0.7) / 1 = -0.4
-        // Negative Kelly → don't bet
+        // 30% win probability, win $1 / lose $1 -> f* = (0.3*1 - 0.7) / 1 = -0.4
+        // Negative Kelly -> don't bet
         let result = kelly_criterion(0.30, dec!(1), dec!(1), dec!(10000), 1.0);
         assert!(
             result.kelly_fraction < 0.0,
@@ -445,28 +589,28 @@ mod tests {
 
     #[test]
     fn test_kelly_edge_cases() {
-        // p = 0 → no bet
+        // p = 0 -> no bet
         let r0 = kelly_criterion(0.0, dec!(2), dec!(1), dec!(10000), 0.25);
         assert_eq!(r0.suggested_size, Decimal::ZERO);
 
-        // p = 1 → certain win, fraction = kelly_multiplier
+        // p = 1 -> certain win, fraction = kelly_multiplier
         let r1 = kelly_criterion(1.0, dec!(2), dec!(1), dec!(10000), 0.25);
         assert_eq!(r1.kelly_fraction, 1.0);
         assert!((r1.adjusted_fraction - 0.25).abs() < 1e-10);
         assert_eq!(r1.suggested_size, dec!(2500)); // 0.25 * 10000
 
-        // Zero bankroll → no bet
+        // Zero bankroll -> no bet
         let rb = kelly_criterion(0.60, dec!(2), dec!(1), Decimal::ZERO, 0.25);
         assert_eq!(rb.suggested_size, Decimal::ZERO);
 
-        // Zero loss_if_wrong → edge case, no bet
+        // Zero loss_if_wrong -> edge case, no bet
         let rl = kelly_criterion(0.60, dec!(2), Decimal::ZERO, dec!(10000), 0.25);
         assert_eq!(rl.suggested_size, Decimal::ZERO);
     }
 
     #[test]
     fn test_kelly_coin_flip() {
-        // Fair coin, even payoff → f* = (0.5*1 - 0.5)/1 = 0 → don't bet
+        // Fair coin, even payoff -> f* = (0.5*1 - 0.5)/1 = 0 -> don't bet
         let result = kelly_criterion(0.50, dec!(1), dec!(1), dec!(10000), 0.25);
         assert!(
             result.kelly_fraction.abs() < 1e-10,

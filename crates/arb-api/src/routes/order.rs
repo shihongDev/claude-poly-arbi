@@ -31,6 +31,14 @@ pub async fn place_order(
     State(state): State<AppState>,
     Json(req): Json<OrderRequest>,
 ) -> impl IntoResponse {
+    // Reject orders when kill switch is active
+    if state.kill_switch_active.load(std::sync::atomic::Ordering::Relaxed) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Kill switch is active — trading is halted" })),
+        );
+    }
+
     // Validate price in (0, 1]
     if req.price <= dec!(0) || req.price > dec!(1) {
         return (
@@ -74,6 +82,11 @@ pub async fn place_order(
         status: FillStatus::FullyFilled,
     };
 
+    let trading_mode = {
+        let cfg = state.config.read().unwrap();
+        if cfg.is_live() { TradingMode::Live } else { TradingMode::Paper }
+    };
+
     let report = ExecutionReport {
         opportunity_id: Uuid::new_v4(),
         legs: vec![leg],
@@ -81,7 +94,7 @@ pub async fn place_order(
         slippage: dec!(0),
         total_fees: dec!(0),
         timestamp: Utc::now(),
-        mode: TradingMode::Paper,
+        mode: trading_mode,
     };
 
     // Update risk limits + position tracker
@@ -94,13 +107,14 @@ pub async fn place_order(
     let _ = broadcast_event(&state, "trade_executed", &report);
     broadcast_positions(&state);
 
+    let mode_str = if trading_mode == TradingMode::Live { "live" } else { "paper" };
     info!(
-        mode = "paper",
+        mode = mode_str,
         side = ?req.side,
         token_id = %req.token_id,
         price = %req.price,
         size = %req.size,
-        "Manual paper order placed"
+        "Manual order placed"
     );
 
     match serde_json::to_value(&report) {

@@ -38,7 +38,7 @@ export function OrderImbalanceChart({ market }: OrderImbalanceChartProps) {
       }
 
       const total = bidSize + askSize;
-      const ratio = total > 0 ? bidSize / askSize : 1;
+      const ratio = askSize > 0 ? bidSize / askSize : 0;
       const label =
         ratio > 1.2 ? "Bullish" : ratio < 0.8 ? "Bearish" : "Balanced";
 

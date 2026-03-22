@@ -242,9 +242,9 @@ function ResultsComparison({ result }: { result: StressTestResult }) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <ResultMetric label="VaR 95%" value={result.var_before} variant="neutral" />
-            <ResultMetric label="Positions at Risk" value="0" variant="neutral" />
+            <ResultMetric label="Positions at Risk" value={0} variant="neutral" />
             <ResultMetric label="Portfolio Impact" value="$0.00" variant="neutral" />
-            <ResultMetric label="Max Loss" value="$0.00" variant="neutral" />
+            <ResultMetric label="Max Loss" value={result.var_before} variant="neutral" />
           </div>
         </div>
 

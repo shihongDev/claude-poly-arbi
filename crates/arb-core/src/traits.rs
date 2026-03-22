@@ -49,6 +49,7 @@ pub trait RiskManager: Send + Sync {
     fn record_execution(&mut self, report: &ExecutionReport, arb_type: ArbType);
     fn is_kill_switch_active(&self) -> bool;
     fn activate_kill_switch(&mut self, reason: &str);
+    fn deactivate_kill_switch(&mut self);
     fn daily_pnl(&self) -> Decimal;
     fn current_exposure(&self) -> Decimal;
 }

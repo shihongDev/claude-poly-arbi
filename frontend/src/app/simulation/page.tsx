@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Loader2, AlertTriangle, XCircle } from "lucide-react";
 import { useDashboardStore } from "@/store";
@@ -68,8 +68,8 @@ interface SimulationResult {
 function normalizeResult(raw: RawSimulationResponse): SimulationResult {
   const mc = raw.monte_carlo;
   const pf = raw.particle_filter;
-  const pfProb = pf.probability.length > 0 ? pf.probability[0] : raw.initial_price;
-  const pfCi = pf.confidence_interval.length > 0 ? pf.confidence_interval[0] : [pfProb - 0.05, pfProb + 0.05];
+  const pfProb = pf.probability.length > 0 ? pf.probability[pf.probability.length - 1] : raw.initial_price;
+  const pfCi = pf.confidence_interval.length > 0 ? pf.confidence_interval[pf.confidence_interval.length - 1] : [pfProb - 0.05, pfProb + 0.05];
 
   return {
     condition_id: raw.condition_id,
@@ -148,8 +148,22 @@ export default function SimulationPage() {
 
   const canRun = conditionId.length > 0 && !loading;
 
+  // AbortController for cleanup on unmount
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   const runSimulation = useCallback(async () => {
     if (!conditionId) return;
+    // Abort any in-flight request
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -159,13 +173,19 @@ export default function SimulationPage() {
         {
           method: "POST",
           body: JSON.stringify({ num_paths: numPaths }),
+          signal: controller.signal,
         }
       );
-      setResult(normalizeResult(raw));
+      if (!controller.signal.aborted) {
+        setResult(normalizeResult(raw));
+      }
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : "An unknown error occurred");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [conditionId, numPaths]);
 

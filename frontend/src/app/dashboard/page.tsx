@@ -13,7 +13,7 @@ import { WinRateByStrategy } from "@/components/win-rate-by-strategy";
 import { Button } from "@/components/ui/button";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
-import { closePosition, closeAllPositions } from "@/lib/api";
+import { closePosition, closeAllPositions, fetchApi } from "@/lib/api";
 import {
   formatUsd,
   formatPnl,
@@ -33,7 +33,7 @@ const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 // Constants & Helpers
 // ---------------------------------------------------------------------------
 
-const MAX_TOTAL_EXPOSURE = 5000;
+const DEFAULT_MAX_TOTAL_EXPOSURE = 5000;
 
 function exposure(pos: Position): number {
   return Math.abs((parseFloat(pos.size) || 0) * (parseFloat(pos.current_price) || 0));
@@ -422,6 +422,20 @@ export default function PortfolioPage() {
   const history = useDashboardStore((s) => s.history);
   const opportunities = useDashboardStore((s) => s.opportunities);
 
+  // -- Max total exposure from config --
+  const [maxTotalExposure, setMaxTotalExposure] = useState(DEFAULT_MAX_TOTAL_EXPOSURE);
+  useEffect(() => {
+    fetchApi<{ risk?: { max_total_exposure?: number } }>("/api/config")
+      .then((cfg) => {
+        if (cfg?.risk?.max_total_exposure) {
+          setMaxTotalExposure(cfg.risk.max_total_exposure);
+        }
+      })
+      .catch(() => {
+        // Fallback to default on error
+      });
+  }, []);
+
   // -- Equity curve (from Dashboard) --
   const equityCurve = useMemo(() => {
     if (!history || history.length === 0) return [];
@@ -430,10 +444,13 @@ export default function PortfolioPage() {
         new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     let cumulative = 0;
-    return sorted.map((report) => {
+    // Deduplicate by date: keep the latest cumulative value per date
+    const byDate = new Map<string, number>();
+    for (const report of sorted) {
       cumulative += parseFloat(report.realized_edge) - parseFloat(report.total_fees);
-      return { time: report.timestamp.slice(0, 10), value: cumulative };
-    });
+      byDate.set(report.timestamp.slice(0, 10), cumulative);
+    }
+    return Array.from(byDate, ([time, value]) => ({ time, value }));
   }, [history]);
 
   // -- Active positions (size > 0) --
@@ -554,9 +571,8 @@ export default function PortfolioPage() {
         .map((report, idx) => {
           const realized = parseFloat(report.realized_edge);
           const slippage = parseFloat(report.slippage);
-          const fees = parseFloat(report.total_fees);
-          const denominator = realized + slippage + fees;
-          const quality = denominator > 0 ? realized / denominator : 0;
+          const gross = realized + slippage;
+          const quality = gross > 0 ? realized / gross : 0;
           return { index: idx + 1, quality: Math.max(0, Math.min(1, quality)) };
         }),
     [history]
@@ -692,7 +708,7 @@ export default function PortfolioPage() {
             <div className="mt-2 h-[120px]">
               <RiskGauge
                 value={currentExposure}
-                max={MAX_TOTAL_EXPOSURE}
+                max={maxTotalExposure}
                 label="Exposure ($)"
                 warningThreshold={0.6}
                 criticalThreshold={0.8}
@@ -702,7 +718,7 @@ export default function PortfolioPage() {
               className="mt-1 text-center text-xs text-[#9B9B9B]"
               style={{ fontFamily: MONO_FONT }}
             >
-              {formatUsd(String(currentExposure))} / {formatUsd(String(MAX_TOTAL_EXPOSURE))}
+              {formatUsd(String(currentExposure))} / {formatUsd(String(maxTotalExposure))}
             </p>
           </div>
           <div className="flex-1 rounded-2xl bg-white p-5">
@@ -746,6 +762,7 @@ export default function PortfolioPage() {
               columns={positionColumns}
               data={activePositions}
               pageSize={10}
+              keyExtractor={(row) => row.token_id}
             />
           )}
         </div>

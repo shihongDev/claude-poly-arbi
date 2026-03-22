@@ -28,6 +28,7 @@ pub struct MarketMakingDetector {
     config: MarketMakingConfig,
     strategy_config: StrategyConfig,
     _slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
     /// Current inventory per market (condition_id -> net position)
     inventory: std::sync::Mutex<HashMap<String, Decimal>>,
 }
@@ -37,11 +38,13 @@ impl MarketMakingDetector {
         config: MarketMakingConfig,
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             _slippage_estimator: slippage_estimator,
+            fee_rate,
             inventory: std::sync::Mutex::new(HashMap::new()),
         }
     }
@@ -53,7 +56,7 @@ impl MarketMakingDetector {
             return Ok(opps);
         }
 
-        // Volume threshold — only MM in liquid markets
+        // Volume threshold -- only MM in liquid markets
         let volume = market.volume_24hr.unwrap_or(Decimal::ZERO);
         if volume < self.config.min_volume_24h {
             return Ok(opps);
@@ -112,7 +115,7 @@ impl MarketMakingDetector {
 
         let quote_size = self.config.quote_size;
         let gross_edge = half_spread * dec!(2); // full spread capture
-        let fee_estimate = mid * dec!(0.02) * dec!(2); // fees on both sides
+        let fee_estimate = mid * self.fee_rate * dec!(2); // fees on both sides
         let net_edge = gross_edge - fee_estimate;
         let edge_bps = net_edge * Decimal::from(10_000);
 
@@ -257,6 +260,7 @@ mod tests {
             MarketMakingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Spread: 0.55 - 0.40 = 0.15 = 1500 bps > 200 bps threshold
@@ -276,6 +280,7 @@ mod tests {
             MarketMakingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Spread: 0.505 - 0.495 = 0.01 = 100 bps < 200 bps threshold
@@ -290,6 +295,7 @@ mod tests {
             MarketMakingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Wide spread but low volume

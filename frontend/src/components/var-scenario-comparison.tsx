@@ -135,7 +135,7 @@ export function VarScenarioComparison() {
                   : p.seriesName === "Max Loss"
                     ? "#B44C3F"
                     : "#6366F1"
-              };margin-right:6px;"></span>${p.seriesName}: <strong>${formatDollar(-p.value)}</strong>`
+              };margin-right:6px;"></span>${p.seriesName}: <strong>${formatDollar(p.value)}</strong>`
           );
           return `<div style="font-size:12px;"><strong>${scenarioLabel}</strong><br/><span style="color:#9B9B9B;font-size:10px;">${desc}</span><br/><br/>${lines.join("<br/>")}</div>`;
         },

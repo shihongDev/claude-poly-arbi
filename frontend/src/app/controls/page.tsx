@@ -185,6 +185,13 @@ export default function ControlsPage() {
         method: "PUT",
         body: JSON.stringify(config),
       });
+      // Re-fetch config to confirm server state
+      try {
+        const confirmed = await fetchApi<DaemonConfig>("/api/config");
+        setConfig(confirmed);
+      } catch {
+        // If re-fetch fails, keep local state
+      }
       toast.success("Configuration saved");
     } catch {
       toast.error("Failed to save configuration");
@@ -522,15 +529,18 @@ export default function ControlsPage() {
                       id="min-edge"
                       type="number"
                       min={0}
+                      max={5000}
                       value={config.strategy.min_edge_bps}
-                      onChange={(e) =>
-                        updateStrategy(
-                          "min_edge_bps",
-                          Number(e.target.value)
-                        )
-                      }
+                      onChange={(e) => {
+                        const raw = Number(e.target.value);
+                        const clamped = Math.max(0, Math.min(5000, raw));
+                        updateStrategy("min_edge_bps", clamped);
+                      }}
                       className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"
                     />
+                    {(config.strategy.min_edge_bps < 0 || config.strategy.min_edge_bps > 5000) && (
+                      <p className="text-xs text-[#B44C3F]">Must be between 0 and 5000</p>
+                    )}
                   </div>
 
                   {/* Spacer for alignment */}

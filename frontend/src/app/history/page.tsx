@@ -274,6 +274,7 @@ export default function HistoryPage() {
             data={filteredHistory}
             pageSize={15}
             onRowClick={(row) => setSelectedReport(row)}
+            keyExtractor={(row) => `${row.opportunity_id}-${row.timestamp}`}
           />
         )}
       </div>

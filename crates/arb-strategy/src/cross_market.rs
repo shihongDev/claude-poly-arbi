@@ -28,6 +28,7 @@ pub struct CrossMarketDetector {
     correlation_graph: Arc<CorrelationGraph>,
     _cache: Arc<MarketCache>,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
 }
 
 impl CrossMarketDetector {
@@ -37,6 +38,7 @@ impl CrossMarketDetector {
         correlation_graph: Arc<CorrelationGraph>,
         cache: Arc<MarketCache>,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
@@ -44,6 +46,7 @@ impl CrossMarketDetector {
             correlation_graph,
             _cache: cache,
             slippage_estimator,
+            fee_rate,
         }
     }
 
@@ -216,7 +219,7 @@ impl CrossMarketDetector {
             Err(_) => return Ok(()),
         };
 
-        let fee_estimate = target_size * (vwap_a.vwap + vwap_b.vwap) * dec!(0.02);
+        let fee_estimate = target_size * (vwap_a.vwap + vwap_b.vwap) * self.fee_rate;
         let net_edge = gross_edge * target_size - fee_estimate;
         let net_edge_per_unit = net_edge / target_size;
         let edge_bps = net_edge_per_unit * Decimal::from(10_000);

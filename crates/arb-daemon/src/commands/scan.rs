@@ -58,6 +58,7 @@ pub async fn execute() -> anyhow::Result<()> {
             config.strategy.intra_market.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            config.fees.effective_rate(config.slippage.prefer_post_only),
         )));
     }
 
@@ -66,6 +67,7 @@ pub async fn execute() -> anyhow::Result<()> {
             config.strategy.multi_outcome.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            config.fees.effective_rate(config.slippage.prefer_post_only),
         )));
     }
 
@@ -253,6 +255,7 @@ pub async fn execute_comprehensive(
             config.strategy.intra_market.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            config.fees.effective_rate(config.slippage.prefer_post_only),
         );
         let opps = detector.scan(&enriched_markets).await?;
         if verbose {
@@ -270,6 +273,7 @@ pub async fn execute_comprehensive(
             config.strategy.multi_outcome.clone(),
             config.strategy.clone(),
             slippage_estimator.clone(),
+            config.fees.effective_rate(config.slippage.prefer_post_only),
         );
         let opps = detector.scan(&enriched_markets).await?;
         if verbose {

@@ -104,6 +104,15 @@ impl PositionTracker {
                 }
             }
             Side::Sell => {
+                // Fix T1-34: Warn when sell amount exceeds current position
+                if size > pos.size {
+                    tracing::warn!(
+                        token_id = token_id,
+                        sell_size = %size,
+                        current_position = %pos.size,
+                        "Sell size exceeds current position, clamping to available"
+                    );
+                }
                 pos.size -= size;
                 if pos.size <= Decimal::ZERO {
                     pos.size = Decimal::ZERO;
@@ -250,12 +259,34 @@ impl PositionTracker {
     }
 
     /// Persist positions to a JSON file.
+    ///
+    /// Fix P0-15: Uses atomic write (write to temp file, then rename) to prevent
+    /// corruption if the process is killed mid-write.
     pub fn save(&self, path: &Path) -> Result<()> {
         let json = serde_json::to_string_pretty(self)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, json)?;
+
+        // Write to a temporary file in the same directory, then atomically rename.
+        // This prevents half-written state files on crash.
+        let tmp_path = path.with_extension("tmp");
+        std::fs::write(&tmp_path, &json).map_err(|e| {
+            ArbError::Config(format!(
+                "Failed to write temp position file {}: {e}",
+                tmp_path.display()
+            ))
+        })?;
+        std::fs::rename(&tmp_path, path).map_err(|e| {
+            // Clean up temp file on rename failure
+            let _ = std::fs::remove_file(&tmp_path);
+            ArbError::Config(format!(
+                "Failed to atomically rename {} -> {}: {e}",
+                tmp_path.display(),
+                path.display()
+            ))
+        })?;
+
         Ok(())
     }
 
@@ -348,6 +379,44 @@ mod tests {
 
         // 100 * 0.50 + 200 * 0.30 = 50 + 60 = 110
         assert_eq!(tracker.total_exposure(), dec!(110));
+    }
+
+    #[test]
+    fn test_atomic_save_and_load() {
+        // Fix P0-15: Verify save uses atomic write
+        let dir = std::env::temp_dir().join("arb_risk_save_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let state_path = dir.join(format!("positions_{}.json", Uuid::new_v4()));
+
+        let mut tracker = PositionTracker::new();
+        tracker.update(&make_report("tok_a", Side::Buy, dec!(0.50), dec!(100)));
+
+        // Save should succeed
+        tracker.save(&state_path).unwrap();
+
+        // No .tmp file should remain
+        let tmp_path = state_path.with_extension("tmp");
+        assert!(!tmp_path.exists(), "Temp file should not remain after save");
+
+        // Load should succeed and match
+        let loaded = PositionTracker::load(&state_path).unwrap();
+        let pos = loaded.get("tok_a").unwrap();
+        assert_eq!(pos.size, dec!(100));
+
+        // Cleanup
+        let _ = std::fs::remove_file(&state_path);
+    }
+
+    #[test]
+    fn test_oversell_clamped_to_zero() {
+        // Fix T1-34: Over-sell should clamp and warn (not panic)
+        let mut tracker = PositionTracker::new();
+        tracker.update(&make_report("tok_a", Side::Buy, dec!(0.50), dec!(100)));
+        // Sell more than we own
+        tracker.update(&make_report("tok_a", Side::Sell, dec!(0.55), dec!(150)));
+
+        let pos = tracker.get("tok_a").unwrap();
+        assert_eq!(pos.size, Decimal::ZERO, "Position should be clamped to zero");
     }
 
     // --- WAL tests ---

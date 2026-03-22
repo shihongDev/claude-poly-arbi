@@ -36,7 +36,7 @@ export function OrderForm({ market }: OrderFormProps) {
   const priceNum = parseFloat(price) || 0;
   const sizeNum = parseFloat(size) || 0;
   const estimatedCost = priceNum * sizeNum;
-  const isValid = priceNum > 0 && priceNum <= 1 && sizeNum > 0;
+  const isValid = priceNum > 0 && priceNum < 1 && sizeNum > 0;
 
   const handleSubmit = useCallback(async () => {
     if (!isValid || submitting) return;
@@ -54,7 +54,7 @@ export function OrderForm({ market }: OrderFormProps) {
       });
       const outcomeName = market.outcomes[selectedOutcome] ?? "Unknown";
       toast.success(
-        `Paper ${side} ${sizeNum} shares of "${outcomeName}" @ ${priceNum.toFixed(2)}`
+        `Paper ${side} ${sizeNum} shares of "${outcomeName}" @ ${priceNum.toFixed(4)}`
       );
       setPrice("");
       setSize("");
@@ -143,7 +143,7 @@ export function OrderForm({ market }: OrderFormProps) {
             </Label>
             {suggestedPrice !== null && (
               <button
-                onClick={() => setPrice(suggestedPrice.toFixed(2))}
+                onClick={() => setPrice(suggestedPrice.toFixed(4))}
                 className="text-[10px] text-[#2D6A4F] hover:underline"
               >
                 Use {side === "Buy" ? "best ask" : "best bid"}: {suggestedPrice.toFixed(4)}
@@ -155,8 +155,8 @@ export function OrderForm({ market }: OrderFormProps) {
             type="number"
             min={0.01}
             max={0.99}
-            step={0.01}
-            placeholder="0.01 – 0.99"
+            step={0.0001}
+            placeholder="0.0001 – 0.9999"
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             className="border-[#E6E4DF] bg-[#F0EEEA] text-[#1A1A19]"

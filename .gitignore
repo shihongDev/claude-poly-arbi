@@ -211,3 +211,14 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .worktrees/
+
+# Local tool config
+.claude/
+.serena/
+
+# Investigation & experiment artifacts
+trading_system_design_investigation.txt
+program.md
+results.tsv
+scripts/
+docs/plans/

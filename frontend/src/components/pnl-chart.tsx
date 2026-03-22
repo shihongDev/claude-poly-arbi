@@ -98,6 +98,9 @@ export const PnlChart = memo(function PnlChart({ data }: PnlChartProps) {
       value,
     }));
 
+    // Sort by time — lightweight-charts requires strictly ascending order
+    chartData.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+
     seriesRef.current.setData(chartData);
 
     const lastValue = data[data.length - 1]?.value ?? 0;

@@ -26,7 +26,7 @@ use serde::Deserialize;
 
 use crate::state::AppState;
 
-// ─── Shared detector construction ────────────────────────────────────────────
+// --- Shared detector construction ---
 
 /// Build all enabled strategy detectors from config.
 ///
@@ -41,12 +41,14 @@ fn build_detectors(
     slippage: Arc<dyn SlippageEstimator>,
 ) -> Vec<Box<dyn ArbDetector>> {
     let mut detectors: Vec<Box<dyn ArbDetector>> = Vec::new();
+    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
 
     if config.strategy.intra_market_enabled {
         detectors.push(Box::new(IntraMarketDetector::new(
             config.strategy.intra_market.clone(),
             config.strategy.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
     if config.strategy.multi_outcome_enabled {
@@ -54,6 +56,7 @@ fn build_detectors(
             config.strategy.multi_outcome.clone(),
             config.strategy.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
     if config.strategy.cross_market_enabled {
@@ -82,6 +85,7 @@ fn build_detectors(
             Arc::new(graph),
             state.market_cache.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
     if config.strategy.resolution_sniping_enabled {
@@ -89,6 +93,7 @@ fn build_detectors(
             config.strategy.resolution_sniping.clone(),
             config.strategy.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
     if config.strategy.stale_market_enabled {
@@ -96,6 +101,7 @@ fn build_detectors(
             config.strategy.stale_market.clone(),
             config.strategy.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
     if config.strategy.volume_spike_enabled {
@@ -103,6 +109,7 @@ fn build_detectors(
             config.strategy.volume_spike.clone(),
             config.strategy.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
     if config.strategy.liquidity_sniping_enabled {
@@ -110,6 +117,7 @@ fn build_detectors(
             config.strategy.liquidity_sniping.clone(),
             config.strategy.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
     if config.strategy.market_making_enabled {
@@ -117,9 +125,10 @@ fn build_detectors(
             config.strategy.market_making.clone(),
             config.strategy.clone(),
             slippage.clone(),
+            fee_rate,
         )));
     }
-    // NOTE: prob_model is omitted — requires ProbabilityEstimator (see doc comment above).
+    // NOTE: prob_model is omitted -- requires ProbabilityEstimator (see doc comment above).
 
     detectors
 }
@@ -150,7 +159,7 @@ fn config_used_json(config: &ArbConfig) -> serde_json::Value {
     })
 }
 
-// ─── detect ──────────────────────────────────────────────────────────────────
+// --- detect ---
 
 #[derive(Deserialize)]
 pub struct DetectRequest {
@@ -179,7 +188,7 @@ pub async fn detect(
     let markets = state.market_cache.active_markets();
     let markets_scanned = markets.len();
 
-    // ── Diagnostic counters ──
+    // -- Diagnostic counters --
     let mut binary_markets = 0usize;
     let mut neg_risk_markets = 0usize;
     let mut markets_with_orderbooks = 0usize;
@@ -273,7 +282,7 @@ pub async fn detect(
     (StatusCode::OK, Json(result)).into_response()
 }
 
-// ─── sweep ───────────────────────────────────────────────────────────────────
+// --- sweep ---
 
 #[derive(Deserialize)]
 pub struct SweepRequest {
@@ -292,7 +301,7 @@ fn apply_param(
     value: &serde_json::Value,
 ) -> std::result::Result<(), String> {
     match param {
-        // ── Global ──
+        // -- Global --
         "min_edge_bps" => {
             overrides.min_edge_bps = Some(
                 value.as_u64().ok_or_else(|| format!("min_edge_bps: expected u64, got {value}"))?,
@@ -301,7 +310,7 @@ fn apply_param(
         "fee_rate_override" => {
             overrides.fee_rate_override = Some(parse_decimal(value, "fee_rate_override")?);
         }
-        // ── Strategy toggles ──
+        // -- Strategy toggles --
         "intra_market_enabled" => {
             overrides.intra_market_enabled = Some(parse_bool(value, "intra_market_enabled")?);
         }
@@ -331,7 +340,7 @@ fn apply_param(
         "market_making_enabled" => {
             overrides.market_making_enabled = Some(parse_bool(value, "market_making_enabled")?);
         }
-        // ── Per-strategy params ──
+        // -- Per-strategy params --
         // Intra-market
         "intra_min_deviation" => {
             overrides.intra_min_deviation = Some(parse_decimal(value, "intra_min_deviation")?);
@@ -417,7 +426,7 @@ fn apply_param(
         "mm_min_volume" => {
             overrides.mm_min_volume = Some(parse_decimal(value, "mm_min_volume")?);
         }
-        // ── Slippage ──
+        // -- Slippage --
         "max_slippage_bps" => {
             overrides.max_slippage_bps = Some(
                 value
@@ -433,7 +442,7 @@ fn apply_param(
                     as usize,
             );
         }
-        // ── Risk ──
+        // -- Risk --
         "max_position_per_market" => {
             overrides.max_position_per_market =
                 Some(parse_decimal(value, "max_position_per_market")?);
@@ -580,7 +589,7 @@ pub async fn sweep(
     (StatusCode::OK, Json(result)).into_response()
 }
 
-// ─── explain ─────────────────────────────────────────────────────────────────
+// --- explain ---
 
 #[derive(Deserialize)]
 pub struct ExplainRequest {
@@ -622,6 +631,7 @@ pub async fn explain(
     };
 
     let slippage = build_slippage(&config);
+    let fee_rate = config.fees.effective_rate(config.slippage.prefer_post_only);
 
     // All active markets (needed for context-dependent strategies)
     let all_markets = state.market_cache.active_markets();
@@ -698,7 +708,7 @@ pub async fn explain(
             continue;
         }
 
-        // ProbModel needs special handling — skip with explanation
+        // ProbModel needs special handling -- skip with explanation
         if spec.name == "prob_model" {
             strategy_results.push(serde_json::json!({
                 "strategy": spec.name,
@@ -716,11 +726,13 @@ pub async fn explain(
                 config.strategy.intra_market.clone(),
                 config.strategy.clone(),
                 slippage.clone(),
+                fee_rate,
             )),
             "multi_outcome" => Box::new(MultiOutcomeDetector::new(
                 config.strategy.multi_outcome.clone(),
                 config.strategy.clone(),
                 slippage.clone(),
+                fee_rate,
             )),
             "cross_market" => {
                 let mut graph = if let Some(ref file) =
@@ -747,32 +759,38 @@ pub async fn explain(
                     Arc::new(graph),
                     state.market_cache.clone(),
                     slippage.clone(),
+                    fee_rate,
                 ))
             }
             "resolution_sniping" => Box::new(ResolutionSnipingDetector::new(
                 config.strategy.resolution_sniping.clone(),
                 config.strategy.clone(),
                 slippage.clone(),
+                fee_rate,
             )),
             "stale_market" => Box::new(StaleMarketDetector::new(
                 config.strategy.stale_market.clone(),
                 config.strategy.clone(),
                 slippage.clone(),
+                fee_rate,
             )),
             "volume_spike" => Box::new(VolumeSpikeDetector::new(
                 config.strategy.volume_spike.clone(),
                 config.strategy.clone(),
                 slippage.clone(),
+                fee_rate,
             )),
             "liquidity_sniping" => Box::new(LiquiditySnipingDetector::new(
                 config.strategy.liquidity_sniping.clone(),
                 config.strategy.clone(),
                 slippage.clone(),
+                fee_rate,
             )),
             "market_making" => Box::new(MarketMakingDetector::new(
                 config.strategy.market_making.clone(),
                 config.strategy.clone(),
                 slippage.clone(),
+                fee_rate,
             )),
             _ => unreachable!(),
         };
@@ -882,7 +900,7 @@ pub async fn explain(
     (StatusCode::OK, Json(result)).into_response()
 }
 
-// ─── backtest (unchanged) ────────────────────────────────────────────────────
+// --- backtest (unchanged) ---
 
 #[derive(Deserialize)]
 pub struct BacktestRequest {

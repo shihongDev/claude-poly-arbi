@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal_macros::dec;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -24,6 +23,7 @@ pub struct ProbModelDetector {
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
     estimator: Arc<dyn ProbabilityEstimator>,
+    fee_rate: Decimal,
 }
 
 impl ProbModelDetector {
@@ -32,12 +32,14 @@ impl ProbModelDetector {
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
         estimator: Arc<dyn ProbabilityEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             slippage_estimator,
             estimator,
+            fee_rate,
         }
     }
 
@@ -110,7 +112,7 @@ impl ProbModelDetector {
             };
 
             let gross_edge = deviation.abs();
-            let fee_estimate = vwap.vwap * dec!(0.02);
+            let fee_estimate = vwap.vwap * self.fee_rate;
             let net_edge = gross_edge - fee_estimate;
             let edge_bps = net_edge * Decimal::from(10_000);
 
@@ -184,6 +186,7 @@ impl ArbDetector for ProbModelDetector {
 mod tests {
     use super::*;
     use arb_core::{OrderbookLevel, OrderbookSnapshot, ProbEstimate, VwapEstimate};
+    use rust_decimal_macros::dec;
 
     struct MockSlippage;
     impl SlippageEstimator for MockSlippage {
@@ -283,6 +286,7 @@ mod tests {
             StrategyConfig::default(),
             Arc::new(MockSlippage),
             estimator,
+            dec!(0.02),
         );
 
         // Market price 0.50, model says 0.65 -> 150 bps deviation > 100 bps threshold
@@ -308,6 +312,7 @@ mod tests {
             StrategyConfig::default(),
             Arc::new(MockSlippage),
             estimator,
+            dec!(0.02),
         );
 
         let market = make_market(dec!(0.50));
@@ -327,6 +332,7 @@ mod tests {
             StrategyConfig::default(),
             Arc::new(MockSlippage),
             estimator,
+            dec!(0.02),
         );
 
         let market = make_market(dec!(0.50));

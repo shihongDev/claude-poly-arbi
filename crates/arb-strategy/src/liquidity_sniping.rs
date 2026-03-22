@@ -28,6 +28,7 @@ pub struct LiquiditySnipingDetector {
     config: LiquiditySnipingConfig,
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
     /// Ring buffer of (total_ask_depth, total_bid_depth) per market per tick
     depth_history: std::sync::Mutex<std::collections::HashMap<String, VecDeque<(Decimal, Decimal)>>>,
 }
@@ -37,11 +38,13 @@ impl LiquiditySnipingDetector {
         config: LiquiditySnipingConfig,
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             slippage_estimator,
+            fee_rate,
             depth_history: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -159,7 +162,7 @@ impl LiquiditySnipingDetector {
         // Edge proportional to depth wipeout: more wipeout = bigger expected reversion
         // Scale: 50% wipeout -> ~2% edge, 90% wipeout -> ~5% edge
         let gross_edge = depth_ratio * dec!(0.05);
-        let fee_estimate = vwap.vwap * dec!(0.002); // taker rebate for post-only
+        let fee_estimate = vwap.vwap * self.fee_rate;
         let net_edge = gross_edge - fee_estimate;
         let edge_bps = net_edge * Decimal::from(10_000);
 
@@ -298,6 +301,7 @@ mod tests {
             LiquiditySnipingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         // Seed with normal depth (500 ask size)
@@ -321,6 +325,7 @@ mod tests {
             LiquiditySnipingConfig::default(),
             StrategyConfig::default(),
             Arc::new(MockSlippage),
+            dec!(0.02),
         );
 
         let normal = make_market(dec!(500));
@@ -329,7 +334,7 @@ mod tests {
             let _ = detector.scan(&markets).await;
         }
 
-        // Same depth — no wipeout
+        // Same depth -- no wipeout
         let opps = detector.scan(&markets).await.unwrap();
         assert!(opps.is_empty());
     }

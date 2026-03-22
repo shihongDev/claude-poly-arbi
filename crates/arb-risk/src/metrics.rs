@@ -1,9 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use arb_core::{ArbType, ExecutionReport};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
+
+/// Maximum number of execution reports to retain in memory.
+/// Oldest reports are evicted when this limit is reached.
+const MAX_EXECUTION_REPORTS: usize = 10_000;
 
 /// Performance metrics: Brier score, PnL attribution, drawdown, execution quality.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +21,11 @@ pub struct PerformanceMetrics {
     /// Current equity.
     current_equity: Decimal,
     /// All execution reports for quality analysis.
-    execution_reports: Vec<ExecutionReport>,
+    /// Fix T1-32: Bounded to MAX_EXECUTION_REPORTS using VecDeque for O(1) eviction.
+    execution_reports: VecDeque<ExecutionReport>,
+    /// Number of currently open (partially filled) orders.
+    /// Fix T1-27: Tracked here so callers can query it.
+    open_order_count: usize,
 }
 
 impl PerformanceMetrics {
@@ -27,11 +35,12 @@ impl PerformanceMetrics {
             pnl_by_type: HashMap::new(),
             peak_equity: starting_equity,
             current_equity: starting_equity,
-            execution_reports: Vec::new(),
+            execution_reports: VecDeque::new(),
+            open_order_count: 0,
         }
     }
 
-    /// Brier score: mean((predicted - actual)²).
+    /// Brier score: mean((predicted - actual)^2).
     ///
     /// Lower is better. 0.0 = perfect calibration. 0.25 = random guessing.
     /// Tracks how well our probability estimates match reality.
@@ -126,7 +135,42 @@ impl PerformanceMetrics {
             self.peak_equity = self.current_equity;
         }
 
-        self.execution_reports.push(report.clone());
+        // Fix T1-32: Evict oldest report if at capacity
+        if self.execution_reports.len() >= MAX_EXECUTION_REPORTS {
+            self.execution_reports.pop_front();
+        }
+        self.execution_reports.push_back(report.clone());
+
+        // Fix T1-27: Track open order count from leg statuses
+        let new_legs = report.legs.len();
+        let completed = report
+            .legs
+            .iter()
+            .filter(|l| {
+                matches!(
+                    l.status,
+                    arb_core::FillStatus::FullyFilled
+                        | arb_core::FillStatus::Rejected
+                        | arb_core::FillStatus::Cancelled
+                )
+            })
+            .count();
+        self.open_order_count = self
+            .open_order_count
+            .saturating_add(new_legs)
+            .saturating_sub(completed);
+    }
+
+    /// Record the completion of an order that was previously partially filled.
+    ///
+    /// Fix T1-27: Provides a decrement path for open_order_count.
+    pub fn record_order_completion(&mut self, completed_count: usize) {
+        self.open_order_count = self.open_order_count.saturating_sub(completed_count);
+    }
+
+    /// Number of currently open (in-flight) orders.
+    pub fn open_order_count(&self) -> usize {
+        self.open_order_count
     }
 
     /// PnL for a specific arb type.
@@ -167,7 +211,9 @@ impl Default for PerformanceMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arb_core::{FillStatus, LegReport, Side, TradingMode};
     use rust_decimal_macros::dec;
+    use uuid::Uuid;
 
     #[test]
     fn test_brier_score_perfect() {
@@ -190,7 +236,7 @@ mod tests {
     #[test]
     fn test_brier_score_random() {
         let mut metrics = PerformanceMetrics::default();
-        // Always predict 0.5 → Brier = 0.25
+        // Always predict 0.5 -> Brier = 0.25
         for _ in 0..100 {
             metrics.record_prediction(0.5, true);
             metrics.record_prediction(0.5, false);
@@ -214,5 +260,82 @@ mod tests {
         let mut metrics = PerformanceMetrics::new(dec!(1000));
         metrics.record_equity(dec!(1100));
         assert!((metrics.drawdown_pct() - 0.0).abs() < 1e-10);
+    }
+
+    fn make_execution_report(edge: Decimal) -> ExecutionReport {
+        ExecutionReport {
+            opportunity_id: Uuid::new_v4(),
+            legs: vec![LegReport {
+                order_id: "o1".into(),
+                token_id: "tok".into(),
+                condition_id: "c1".into(),
+                side: Side::Buy,
+                expected_vwap: dec!(0.50),
+                actual_fill_price: dec!(0.50),
+                filled_size: dec!(100),
+                status: FillStatus::FullyFilled,
+            }],
+            realized_edge: edge,
+            slippage: Decimal::ZERO,
+            total_fees: Decimal::ZERO,
+            timestamp: chrono::Utc::now(),
+            mode: TradingMode::Paper,
+        }
+    }
+
+    #[test]
+    fn test_execution_reports_bounded() {
+        // Fix T1-32: Verify reports are capped at MAX_EXECUTION_REPORTS
+        let mut metrics = PerformanceMetrics::new(dec!(10000));
+
+        for _i in 0..MAX_EXECUTION_REPORTS + 100 {
+            let report = make_execution_report(dec!(0.01));
+            metrics.record_execution(&report, ArbType::IntraMarket);
+        }
+
+        assert_eq!(
+            metrics.execution_reports.len(),
+            MAX_EXECUTION_REPORTS,
+            "Reports should be capped at {}",
+            MAX_EXECUTION_REPORTS
+        );
+    }
+
+    #[test]
+    fn test_open_order_count_tracking() {
+        // Fix T1-27: Verify open_order_count is maintained in metrics
+        let mut metrics = PerformanceMetrics::new(dec!(10000));
+        assert_eq!(metrics.open_order_count(), 0);
+
+        // Fully filled leg: added and immediately completed
+        let report = make_execution_report(dec!(0.01));
+        metrics.record_execution(&report, ArbType::IntraMarket);
+        assert_eq!(metrics.open_order_count(), 0);
+
+        // Partially filled leg: stays open
+        let partial_report = ExecutionReport {
+            opportunity_id: Uuid::new_v4(),
+            legs: vec![LegReport {
+                order_id: "o2".into(),
+                token_id: "tok".into(),
+                condition_id: "c1".into(),
+                side: Side::Buy,
+                expected_vwap: dec!(0.50),
+                actual_fill_price: dec!(0.50),
+                filled_size: dec!(50),
+                status: FillStatus::PartiallyFilled,
+            }],
+            realized_edge: Decimal::ZERO,
+            slippage: Decimal::ZERO,
+            total_fees: Decimal::ZERO,
+            timestamp: chrono::Utc::now(),
+            mode: TradingMode::Paper,
+        };
+        metrics.record_execution(&partial_report, ArbType::IntraMarket);
+        assert_eq!(metrics.open_order_count(), 1);
+
+        // Manually complete the open order
+        metrics.record_order_completion(1);
+        assert_eq!(metrics.open_order_count(), 0);
     }
 }

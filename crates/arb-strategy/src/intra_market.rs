@@ -23,6 +23,7 @@ pub struct IntraMarketDetector {
     config: IntraMarketConfig,
     strategy_config: StrategyConfig,
     slippage_estimator: Arc<dyn SlippageEstimator>,
+    fee_rate: Decimal,
 }
 
 impl IntraMarketDetector {
@@ -30,11 +31,13 @@ impl IntraMarketDetector {
         config: IntraMarketConfig,
         strategy_config: StrategyConfig,
         slippage_estimator: Arc<dyn SlippageEstimator>,
+        fee_rate: Decimal,
     ) -> Self {
         Self {
             config,
             strategy_config,
             slippage_estimator,
+            fee_rate,
         }
     }
 
@@ -85,8 +88,8 @@ impl IntraMarketDetector {
                     let vwap_sum = yv.vwap + nv.vwap;
                     let net_edge = dec!(1.00) - vwap_sum;
 
-                    // Fee estimate: 2% on notional
-                    let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                    // Fee estimate: fee_rate on notional
+                    let fee_estimate = target_size * vwap_sum * self.fee_rate;
                     let net_edge_after_fees = net_edge * target_size - fee_estimate;
 
                     let net_edge_per_unit = if target_size > Decimal::ZERO {
@@ -164,7 +167,7 @@ impl IntraMarketDetector {
                         let vwap_sum = yv.vwap + nv.vwap;
                         let net_edge = vwap_sum - dec!(1.00);
 
-                        let fee_estimate = target_size * vwap_sum * dec!(0.02);
+                        let fee_estimate = target_size * vwap_sum * self.fee_rate;
                         let net_edge_after_fees = net_edge * target_size - fee_estimate;
                         let net_edge_per_unit = if target_size > Decimal::ZERO {
                             net_edge_after_fees / target_size

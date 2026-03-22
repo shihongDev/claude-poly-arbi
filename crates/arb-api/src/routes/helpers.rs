@@ -4,7 +4,7 @@ use crate::state::AppState;
 
 pub fn append_history(state: &AppState, report: &ExecutionReport) {
     if let Ok(mut history) = state.execution_history.write() {
-        history.insert(0, report.clone());
+        history.push_front(report.clone());
         history.truncate(500);
     }
 }
